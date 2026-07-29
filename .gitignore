@@ -3,4 +3,6 @@ Inventory-Scanner-Windows/
 *.zip
 inventory.db
 certs/
+exports/
+public/images/
 .DS_Store

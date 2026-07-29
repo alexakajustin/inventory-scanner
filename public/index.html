@@ -218,9 +218,15 @@
           </ol>
         </div>
 
-        <button id="btn-export" class="btn btn-primary btn-xl">
-          <span>⬇️</span> Descarcă CSV
-        </button>
+        <div class="export-buttons">
+          <button id="btn-export" class="btn btn-primary btn-xl">
+            <span>⬇️</span> Descarcă CSV Local
+          </button>
+          <button id="btn-save-server" class="btn btn-success btn-xl">
+            <span>💾</span> Salvează pe Server
+          </button>
+        </div>
+        <div id="server-save-status" class="server-save-status" style="display:none;"></div>
       </div>
     </section>
 

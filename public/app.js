@@ -47,6 +47,8 @@
     inventoryList: $('#inventory-list'),
     // Export
     btnExport: $('#btn-export'),
+    btnSaveServer: $('#btn-save-server'),
+    serverSaveStatus: $('#server-save-status'),
     statTotal: $('#stat-total'),
     statManufacturers: $('#stat-manufacturers'),
     statCategories: $('#stat-categories'),
@@ -621,6 +623,33 @@
     } catch (err) {
       console.error('Export error:', err);
       showToast('❌', 'Eroare la export', 'error');
+    }
+  });
+
+  // Server-side save
+  els.btnSaveServer.addEventListener('click', async () => {
+    try {
+      const resp = await fetch('/api/export/save', { method: 'POST' });
+      const data = await resp.json();
+
+      if (resp.ok) {
+        showToast('✅', 'CSV salvat pe server!', 'success');
+        els.serverSaveStatus.style.display = 'block';
+        els.serverSaveStatus.className = 'server-save-status success';
+        els.serverSaveStatus.innerHTML = `
+          <strong>💾 Salvat cu succes!</strong><br>
+          <span>📁 ${data.path}</span><br>
+          <span>📦 ${data.assets} asset-uri exportate</span>
+        `;
+      } else {
+        showToast('⚠️', data.error || 'Eroare la salvare', 'error');
+        els.serverSaveStatus.style.display = 'block';
+        els.serverSaveStatus.className = 'server-save-status error';
+        els.serverSaveStatus.textContent = data.error || 'Eroare la salvare';
+      }
+    } catch (err) {
+      console.error('Server save error:', err);
+      showToast('❌', 'Eroare la salvare pe server', 'error');
     }
   });
 

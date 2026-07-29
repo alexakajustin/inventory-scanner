@@ -3,6 +3,7 @@ const https = require('https');
 const http = require('http');
 const path = require('path');
 const os = require('os');
+const fs = require('fs');
 const cors = require('cors');
 const { generateCerts } = require('./generate-cert');
 const db = require('./db');
@@ -55,6 +56,16 @@ app.get('/api/lookup/:barcode', async (req, res) => {
     if (data.code === 'OK' && data.items && data.items.length > 0) {
       const item = data.items[0];
 
+      let image_url = (item.images && item.images.length > 0) ? item.images[0] : null;
+
+      // Download image to server if available
+      if (image_url) {
+        const localPath = await downloadImage(image_url, barcode);
+        if (localPath) {
+          image_url = localPath; // Use local path instead of remote URL
+        }
+      }
+
       const result = {
         found: true,
         barcode: barcode,
@@ -64,7 +75,7 @@ app.get('/api/lookup/:barcode', async (req, res) => {
         model_number: item.model || '',
         category: item.category || guessCategory(item.title),
         description: item.description || '',
-        image_url: (item.images && item.images.length > 0) ? item.images[0] : null,
+        image_url: image_url,
         lowest_price: item.lowest_recorded_price || null,
         highest_price: item.highest_recorded_price || null,
         raw: item,
@@ -171,6 +182,39 @@ app.get('/api/export/csv', (req, res) => {
   res.send(csv);
 });
 
+// Save CSV to server filesystem
+app.post('/api/export/save', (req, res) => {
+  const assets = db.getAllAssets();
+
+  if (assets.length === 0) {
+    return res.status(404).json({ error: 'No assets to export' });
+  }
+
+  const headers = [
+    'Item Name', 'Asset Tag', 'Serial Number', 'Manufacturer',
+    'Model Name', 'Model Number', 'Category', 'Status', 'Purchase Cost', 'Notes',
+  ];
+
+  const rows = assets.map(a => [
+    csvEscape(a.name), csvEscape(a.asset_tag), csvEscape(a.serial),
+    csvEscape(a.manufacturer), csvEscape(a.model_name), csvEscape(a.model_number),
+    csvEscape(a.category), csvEscape(a.status), a.purchase_cost || '', csvEscape(a.notes),
+  ].join(','));
+
+  const csv = [headers.join(','), ...rows].join('\n');
+
+  // Save to exports folder next to server.js
+  const exportsDir = path.join(__dirname, 'exports');
+  if (!fs.existsSync(exportsDir)) fs.mkdirSync(exportsDir, { recursive: true });
+
+  const filename = `snipeit-import-${new Date().toISOString().slice(0, 10)}.csv`;
+  const filePath = path.join(exportsDir, filename);
+  fs.writeFileSync(filePath, csv, 'utf-8');
+
+  console.log(`💾 CSV salvat pe server: ${filePath}`);
+  res.json({ success: true, path: filePath, filename, assets: assets.length });
+});
+
 // ── API: Stats ───────────────────────────────────────────────────
 
 app.get('/api/stats', (req, res) => {
@@ -257,6 +301,51 @@ function csvEscape(val) {
     return `"${str.replace(/"/g, '""')}"`;
   }
   return str;
+}
+
+// ── Image Download Helper ────────────────────────────────────────
+
+async function downloadImage(imageUrl, barcode) {
+  try {
+    const imagesDir = path.join(__dirname, 'public', 'images');
+    if (!fs.existsSync(imagesDir)) fs.mkdirSync(imagesDir, { recursive: true });
+
+    // Determine extension from URL
+    let ext = '.jpg';
+    try {
+      const urlPath = new URL(imageUrl).pathname;
+      const urlExt = path.extname(urlPath).toLowerCase();
+      if (['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(urlExt)) {
+        ext = urlExt;
+      }
+    } catch { /* ignore */ }
+
+    const filename = `${barcode}${ext}`;
+    const filePath = path.join(imagesDir, filename);
+
+    // Don't re-download if already exists
+    if (fs.existsSync(filePath)) {
+      console.log(`🖼️ Image already exists: ${filename}`);
+      return `/images/${filename}`;
+    }
+
+    console.log(`🖼️ Downloading image for ${barcode}...`);
+
+    const imgResp = await fetch(imageUrl);
+    if (!imgResp.ok) {
+      console.error(`❌ Image download failed: ${imgResp.status}`);
+      return null;
+    }
+
+    const buffer = Buffer.from(await imgResp.arrayBuffer());
+    fs.writeFileSync(filePath, buffer);
+    console.log(`✅ Image saved: ${filename} (${(buffer.length / 1024).toFixed(1)} KB)`);
+
+    return `/images/${filename}`;
+  } catch (err) {
+    console.error(`❌ Image download error: ${err.message}`);
+    return null;
+  }
 }
 
 // ── Get local network IPs ────────────────────────────────────────
