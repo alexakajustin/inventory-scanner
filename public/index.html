@@ -43,6 +43,10 @@
         <span class="tab-icon">📤</span>
         <span class="tab-label">Export</span>
       </button>
+      <button class="tab" data-tab="settings" id="tab-settings">
+        <span class="tab-icon">⚙️</span>
+        <span class="tab-label">Setări</span>
+      </button>
     </nav>
 
     <!-- ═══ SCAN TAB ═══ -->
@@ -227,6 +231,60 @@
           </button>
         </div>
         <div id="server-save-status" class="server-save-status" style="display:none;"></div>
+
+        <hr style="border-color: var(--border); margin: 24px 0;">
+
+        <h3>🔄 Sync Snipe-IT</h3>
+        <p class="export-desc">Trimite toate asset-urile nesincronizate direct în Snipe-IT (necesită configurare în tab-ul Setări).</p>
+        <button id="btn-sync-all" class="btn btn-accent btn-xl" style="margin-top: 12px;">
+          <span>🚀</span> Sync All to Snipe-IT
+        </button>
+        <div id="sync-all-status" class="server-save-status" style="display:none;"></div>
+      </div>
+    </section>
+
+    <!-- ═══ SETTINGS TAB ═══ -->
+    <section class="tab-content" id="content-settings">
+      <div class="settings-panel">
+        <div class="settings-header">
+          <div class="settings-icon">⚙️</div>
+          <h2>Setari Snipe-IT</h2>
+          <p class="export-desc">Configurează conexiunea directa cu Snipe-IT pentru sincronizare automată.</p>
+        </div>
+
+        <div class="settings-form">
+          <div class="form-group">
+            <label for="setting-url">Snipe-IT URL</label>
+            <input type="url" id="setting-url" placeholder="https://snipeit.firma.ro">
+            <small class="form-hint">Adresa completă a instanței Snipe-IT (fără / la final)</small>
+          </div>
+
+          <div class="form-group">
+            <label for="setting-apikey">API Key</label>
+            <input type="password" id="setting-apikey" placeholder="Generat din Snipe-IT → Settings → API">
+            <small class="form-hint" id="apikey-hint">Generează un Personal API Token din admin-ul Snipe-IT</small>
+          </div>
+
+          <div class="form-group">
+            <label class="toggle-label">
+              <input type="checkbox" id="setting-autosync">
+              <span class="toggle-switch"></span>
+              <span>Sync automat la salvare</span>
+            </label>
+            <small class="form-hint">Când e activ, fiecare asset salvat se trimite instant în Snipe-IT</small>
+          </div>
+
+          <div class="settings-actions">
+            <button id="btn-save-settings" class="btn btn-primary btn-lg">
+              <span>💾</span> Salvează Setările
+            </button>
+            <button id="btn-test-connection" class="btn btn-secondary btn-lg">
+              <span>🔌</span> Test Conexiune
+            </button>
+          </div>
+
+          <div id="connection-status" class="server-save-status" style="display:none;"></div>
+        </div>
       </div>
     </section>
 

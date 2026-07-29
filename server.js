@@ -7,6 +7,15 @@ const fs = require('fs');
 const cors = require('cors');
 const { generateCerts } = require('./generate-cert');
 const db = require('./db');
+const SnipeITClient = require('./snipeit-client');
+
+// Helper to get a configured Snipe-IT client
+function getSnipeClient() {
+  const url = db.getSetting('snipeit_url');
+  const key = db.getSetting('snipeit_apikey');
+  if (!url || !key) return null;
+  return new SnipeITClient(url, key);
+}
 
 const app = express();
 const HTTP_PORT = 8180;
@@ -31,6 +40,34 @@ app.get('/api/lookup/:barcode', async (req, res) => {
   const cached = db.getCachedLookup(barcode);
   if (cached) {
     console.log(`📦 Cache hit for barcode: ${barcode}`);
+
+    let updatedCache = false;
+    if (cached.image_url) {
+      if (cached.image_url.startsWith('http://') || cached.image_url.startsWith('https://')) {
+        // Remote image in cache -> download locally
+        const localPath = await downloadImage(cached.image_url, barcode);
+        if (localPath) {
+          cached.image_url = localPath;
+          updatedCache = true;
+        }
+      } else if (cached.image_url.startsWith('/images/')) {
+        // Check if file exists on disk
+        const localFilePath = path.join(__dirname, 'public', cached.image_url);
+        if (!fs.existsSync(localFilePath) && cached.raw && cached.raw.images && cached.raw.images.length > 0) {
+          // Re-download missing image
+          const localPath = await downloadImage(cached.raw.images[0], barcode);
+          if (localPath) {
+            cached.image_url = localPath;
+            updatedCache = true;
+          }
+        }
+      }
+    }
+
+    if (updatedCache) {
+      db.setCachedLookup(barcode, cached);
+    }
+
     return res.json({ source: 'cache', ...cached });
   }
 
@@ -98,10 +135,29 @@ app.get('/api/lookup/:barcode', async (req, res) => {
 // ── API: Assets CRUD ─────────────────────────────────────────────
 
 // Create asset
-app.post('/api/assets', (req, res) => {
+app.post('/api/assets', async (req, res) => {
   try {
     const result = db.createAsset(req.body);
-    res.status(201).json({ success: true, ...result });
+
+    // Auto-sync to Snipe-IT if enabled
+    let snipeitId = null;
+    const autoSync = db.getSetting('snipeit_autosync');
+    if (autoSync === 'true') {
+      try {
+        const client = getSnipeClient();
+        if (client) {
+          const asset = db.getAssetById(result.id);
+          snipeitId = await client.pushAsset(asset);
+          db.updateAssetSnipeId(result.id, snipeitId);
+          console.log(`✅ Auto-synced to Snipe-IT: ${snipeitId}`);
+        }
+      } catch (syncErr) {
+        console.error('⚠️ Auto-sync failed:', syncErr.message);
+        // Don't fail the whole request, asset is still saved locally
+      }
+    }
+
+    res.status(201).json({ success: true, ...result, snipeit_id: snipeitId });
   } catch (err) {
     if (err.message.includes('UNIQUE constraint')) {
       return res.status(409).json({ error: 'Asset tag already exists' });
@@ -228,6 +284,99 @@ app.get('/api/stats', (req, res) => {
     manufacturers: manufacturers.length,
     categories: categories.length,
     topManufacturers: manufacturers.slice(0, 10),
+  });
+});
+
+// ── API: Settings ───────────────────────────────────────────────
+
+app.get('/api/settings', (req, res) => {
+  const settings = db.getAllSettings();
+  // Don't expose full API key to frontend
+  if (settings.snipeit_apikey) {
+    const key = settings.snipeit_apikey;
+    settings.snipeit_apikey_masked = key.length > 8
+      ? key.substring(0, 4) + '...' + key.substring(key.length - 4)
+      : '****';
+    settings.snipeit_apikey_set = 'true';
+  }
+  res.json(settings);
+});
+
+app.post('/api/settings', (req, res) => {
+  const { snipeit_url, snipeit_apikey, snipeit_autosync } = req.body;
+
+  if (snipeit_url !== undefined) db.setSetting('snipeit_url', snipeit_url.replace(/\/+$/, ''));
+  if (snipeit_apikey !== undefined && snipeit_apikey !== '') db.setSetting('snipeit_apikey', snipeit_apikey);
+  if (snipeit_autosync !== undefined) db.setSetting('snipeit_autosync', String(snipeit_autosync));
+
+  res.json({ success: true });
+});
+
+// ── API: Snipe-IT Integration ───────────────────────────────────
+
+app.post('/api/snipeit/test', async (req, res) => {
+  const client = getSnipeClient();
+  if (!client) {
+    return res.status(400).json({ success: false, message: 'Configurează URL-ul și API Key-ul mai întâi' });
+  }
+  const result = await client.testConnection();
+  res.json(result);
+});
+
+app.post('/api/snipeit/push/:id', async (req, res) => {
+  const client = getSnipeClient();
+  if (!client) {
+    return res.status(400).json({ error: 'Snipe-IT nu este configurat' });
+  }
+
+  const asset = db.getAssetById(parseInt(req.params.id));
+  if (!asset) return res.status(404).json({ error: 'Asset not found' });
+
+  if (asset.snipeit_id) {
+    return res.status(409).json({ error: 'Asset-ul este deja sincronizat', snipeit_id: asset.snipeit_id });
+  }
+
+  try {
+    const snipeitId = await client.pushAsset(asset);
+    db.updateAssetSnipeId(asset.id, snipeitId);
+    res.json({ success: true, snipeit_id: snipeitId });
+  } catch (err) {
+    console.error('❌ Push error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/snipeit/push-all', async (req, res) => {
+  const client = getSnipeClient();
+  if (!client) {
+    return res.status(400).json({ error: 'Snipe-IT nu este configurat' });
+  }
+
+  const unsynced = db.getUnsyncedAssets();
+  if (unsynced.length === 0) {
+    return res.json({ success: true, synced: 0, message: 'Toate asset-urile sunt deja sincronizate' });
+  }
+
+  let synced = 0;
+  const errors = [];
+
+  for (const asset of unsynced) {
+    try {
+      const snipeitId = await client.pushAsset(asset);
+      db.updateAssetSnipeId(asset.id, snipeitId);
+      synced++;
+    } catch (err) {
+      console.error(`❌ Push failed for "${asset.name}":`, err.message);
+      errors.push({ name: asset.name, error: err.message });
+    }
+  }
+
+  res.json({
+    success: true,
+    synced,
+    failed: errors.length,
+    total: unsynced.length,
+    errors: errors.length > 0 ? errors : undefined,
   });
 });
 

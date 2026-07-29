@@ -39,6 +39,7 @@ function initDb() {
         notes TEXT,
         status TEXT DEFAULT 'Ready to Deploy',
         image_url TEXT,
+        snipeit_id INTEGER DEFAULT NULL,
         created_at TEXT DEFAULT (datetime('now', 'localtime')),
         updated_at TEXT DEFAULT (datetime('now', 'localtime'))
       )
@@ -51,6 +52,18 @@ function initDb() {
         cached_at TEXT DEFAULT (datetime('now', 'localtime'))
       )
     `);
+
+    db.run(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT
+      )
+    `);
+
+    // Migration: add snipeit_id if it doesn't exist on older DBs
+    try {
+      db.run('ALTER TABLE assets ADD COLUMN snipeit_id INTEGER DEFAULT NULL');
+    } catch { /* column already exists */ }
 
     saveToFile();
     return db;
@@ -124,7 +137,7 @@ function getAssetById(id) {
 }
 
 function updateAsset(id, fields) {
-  const allowed = ['barcode', 'asset_tag', 'serial', 'name', 'manufacturer', 'model_name', 'model_number', 'category', 'purchase_cost', 'notes', 'status', 'image_url'];
+  const allowed = ['barcode', 'asset_tag', 'serial', 'name', 'manufacturer', 'model_name', 'model_number', 'category', 'purchase_cost', 'notes', 'status', 'image_url', 'snipeit_id'];
   const updates = [];
   const values = [];
 
@@ -208,6 +221,38 @@ function closeDb() {
   }
 }
 
+// ── Settings ─────────────────────────────────────────────────
+
+function getSetting(key) {
+  const row = oneRow('SELECT value FROM settings WHERE key = ?', [key]);
+  return row ? row.value : null;
+}
+
+function setSetting(key, value) {
+  db.run('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)', [key, value]);
+  saveToFile();
+}
+
+function getAllSettings() {
+  const rows = allRows('SELECT key, value FROM settings');
+  const result = {};
+  for (const row of rows) {
+    result[row.key] = row.value;
+  }
+  return result;
+}
+
+// ── Snipe-IT Helpers ─────────────────────────────────────────
+
+function updateAssetSnipeId(localId, snipeitId) {
+  db.run('UPDATE assets SET snipeit_id = ? WHERE id = ?', [snipeitId, localId]);
+  saveToFile();
+}
+
+function getUnsyncedAssets() {
+  return allRows('SELECT * FROM assets WHERE snipeit_id IS NULL ORDER BY created_at DESC');
+}
+
 module.exports = {
   initDb,
   createAsset,
@@ -219,5 +264,10 @@ module.exports = {
   searchAssets,
   getCachedLookup,
   setCachedLookup,
+  getSetting,
+  setSetting,
+  getAllSettings,
+  updateAssetSnipeId,
+  getUnsyncedAssets,
   closeDb,
 };

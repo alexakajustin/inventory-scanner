@@ -8,6 +8,7 @@
   // ── State ────────────────────────────────────────────────────
   let scanner = null;
   let isScanning = false;
+  let isProcessingScan = false;
 
   // ── DOM Elements ─────────────────────────────────────────────
   const $ = (sel) => document.querySelector(sel);
@@ -71,6 +72,17 @@
     editCost: $('#edit-cost'),
     editBarcode: $('#edit-barcode'),
     editNotes: $('#edit-notes'),
+    // Settings
+    settingUrl: $('#setting-url'),
+    settingApikey: $('#setting-apikey'),
+    settingAutosync: $('#setting-autosync'),
+    btnSaveSettings: $('#btn-save-settings'),
+    btnTestConnection: $('#btn-test-connection'),
+    connectionStatus: $('#connection-status'),
+    apikeyHint: $('#apikey-hint'),
+    // Sync
+    btnSyncAll: $('#btn-sync-all'),
+    syncAllStatus: $('#sync-all-status'),
   };
 
   // ── Google Price Search Link ────────────────────────────────
@@ -108,6 +120,7 @@
       // Refresh data when switching tabs
       if (target === 'inventory') loadInventory();
       if (target === 'export') loadStats();
+      if (target === 'settings') loadSettings();
     });
   });
 
@@ -179,13 +192,15 @@
   }
 
   async function onScanSuccess(decodedText) {
+    if (isProcessingScan) return;
+    isProcessingScan = true;
+
     // Stop scanner immediately to prevent double-scans
     await stopScanner();
 
     // Vibrate for feedback
     if (navigator.vibrate) navigator.vibrate(200);
 
-    showToast('🔍', `Cod scanat: ${decodedText}`, 'success');
     await lookupBarcode(decodedText);
   }
 
@@ -273,15 +288,22 @@
 
       // Image
       if (data.image_url) {
+        els.resultImage.onerror = () => {
+          console.warn('Image failed to load:', data.image_url);
+          els.resultImageWrapper.style.display = 'none';
+        };
+        els.resultImage.onload = () => {
+          els.resultImageWrapper.style.display = 'block';
+        };
         els.resultImage.src = data.image_url;
-        els.resultImageWrapper.style.display = 'block';
       } else {
         els.resultImageWrapper.style.display = 'none';
+        els.resultImage.src = '';
       }
 
       // Source indicator
       if (data.source === 'cache') {
-        showToast('📦', 'Rezultat din cache (nu s-a consumat un API call)', 'success');
+        showToast('📦', 'Rezultat din cache (nu s-a consumat API call)', 'success');
       }
 
       updateSearchLink();
@@ -301,6 +323,7 @@
       els.fieldCost.value = '';
       els.fieldNotes.value = '';
       els.resultImageWrapper.style.display = 'none';
+      els.resultImage.src = '';
 
       // Focus name field for quick manual entry
       setTimeout(() => els.fieldName.focus(), 300);
@@ -323,8 +346,10 @@
   });
 
   function resetForm() {
+    isProcessingScan = false;
     els.assetForm.reset();
     els.resultImageWrapper.style.display = 'none';
+    els.resultImage.src = '';
   }
 
   // ── Save Asset ───────────────────────────────────────────────
@@ -412,7 +437,12 @@
       <div class="asset-card" data-id="${a.id}">
         <div class="asset-thumb">${getCategoryIcon(a.category)}</div>
         <div class="asset-info">
-          <div class="asset-name">${escapeHtml(a.name)}</div>
+          <div class="asset-name">
+            ${escapeHtml(a.name)}
+            ${a.snipeit_id
+              ? `<span class="sync-badge synced">🟢 Synced</span>`
+              : `<span class="sync-badge unsynced">🔴 Local</span>`}
+          </div>
           <div class="asset-meta">
             ${a.manufacturer ? `<span>${escapeHtml(a.manufacturer)}</span>` : ''}
             ${a.category ? `<span>${escapeHtml(a.category)}</span>` : ''}
@@ -421,6 +451,7 @@
         </div>
         <span class="asset-tag-badge">${escapeHtml(a.asset_tag || '')}</span>
         <div class="asset-actions">
+          ${!a.snipeit_id ? `<button class="btn-icon btn-push" data-id="${a.id}" title="Push to Snipe-IT">🚀</button>` : ''}
           <button class="btn-icon btn-edit" data-id="${a.id}" title="Editează">✏️</button>
           <button class="btn-icon btn-delete" data-id="${a.id}" title="Șterge">🗑️</button>
         </div>
@@ -440,6 +471,32 @@
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         openEditModal(parseInt(btn.dataset.id));
+      });
+    });
+
+    // Push to Snipe-IT handlers
+    els.inventoryList.querySelectorAll('.btn-push').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const id = parseInt(btn.dataset.id);
+        btn.textContent = '⏳';
+        btn.disabled = true;
+        try {
+          const resp = await fetch(`/api/snipeit/push/${id}`, { method: 'POST' });
+          const data = await resp.json();
+          if (resp.ok) {
+            showToast('✅', `Sincronizat cu Snipe-IT (ID: ${data.snipeit_id})`, 'success');
+            loadInventory();
+          } else {
+            showToast('❌', data.error || 'Eroare la sincronizare', 'error');
+            btn.textContent = '🚀';
+            btn.disabled = false;
+          }
+        } catch (err) {
+          showToast('❌', 'Eroare la sincronizare', 'error');
+          btn.textContent = '🚀';
+          btn.disabled = false;
+        }
       });
     });
   }
@@ -710,5 +767,120 @@
   // ── Init ─────────────────────────────────────────────────────
 
   updateAssetCount();
+
+  // ── Settings ────────────────────────────────────────────────
+
+  async function loadSettings() {
+    try {
+      const resp = await fetch('/api/settings');
+      const data = await resp.json();
+
+      els.settingUrl.value = data.snipeit_url || '';
+      els.settingAutosync.checked = data.snipeit_autosync === 'true';
+
+      if (data.snipeit_apikey_set === 'true') {
+        els.settingApikey.placeholder = `Salvat (${data.snipeit_apikey_masked})`;
+        els.apikeyHint.textContent = '✅ API Key setat — lasă gol dacă nu vrei să-l schimbi';
+      }
+    } catch (err) {
+      console.error('Settings load error:', err);
+    }
+  }
+
+  els.btnSaveSettings.addEventListener('click', async () => {
+    const payload = {
+      snipeit_url: els.settingUrl.value.trim(),
+      snipeit_autosync: els.settingAutosync.checked,
+    };
+
+    const apikey = els.settingApikey.value.trim();
+    if (apikey) payload.snipeit_apikey = apikey;
+
+    try {
+      const resp = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (resp.ok) {
+        showToast('✅', 'Setări salvate!', 'success');
+        els.settingApikey.value = '';
+        loadSettings();
+      } else {
+        showToast('❌', 'Eroare la salvare', 'error');
+      }
+    } catch (err) {
+      showToast('❌', 'Eroare la salvare', 'error');
+    }
+  });
+
+  els.btnTestConnection.addEventListener('click', async () => {
+    els.connectionStatus.style.display = 'block';
+    els.connectionStatus.className = 'server-save-status';
+    els.connectionStatus.innerHTML = '<strong>⏳ Se testează conexiunea...</strong>';
+
+    try {
+      const resp = await fetch('/api/snipeit/test', { method: 'POST' });
+      const data = await resp.json();
+
+      if (data.success) {
+        els.connectionStatus.className = 'server-save-status success';
+        els.connectionStatus.innerHTML = `<strong>✅ Conexiune reușită!</strong><br><span>${data.message}</span>`;
+      } else {
+        els.connectionStatus.className = 'server-save-status error';
+        els.connectionStatus.innerHTML = `<strong>❌ Conexiune eșuată</strong><br><span>${data.message}</span>`;
+      }
+    } catch (err) {
+      els.connectionStatus.className = 'server-save-status error';
+      els.connectionStatus.innerHTML = '<strong>❌ Eroare de rețea</strong>';
+    }
+  });
+
+  // ── Sync All ────────────────────────────────────────────────
+
+  els.btnSyncAll.addEventListener('click', async () => {
+    els.btnSyncAll.disabled = true;
+    els.btnSyncAll.textContent = '⏳ Se sincronizează...';
+    els.syncAllStatus.style.display = 'block';
+    els.syncAllStatus.className = 'server-save-status';
+    els.syncAllStatus.innerHTML = '<strong>⏳ Se trimit asset-urile nesincronizate către Snipe-IT...</strong>';
+
+    try {
+      const resp = await fetch('/api/snipeit/push-all', { method: 'POST' });
+      const data = await resp.json();
+
+      if (resp.ok) {
+        if (data.synced > 0) {
+          els.syncAllStatus.className = 'server-save-status success';
+          let html = `<strong>✅ Sincronizare completă!</strong><br>`;
+          html += `<span>📦 ${data.synced}/${data.total} asset-uri trimise</span>`;
+          if (data.failed > 0) {
+            html += `<br><span>⚠️ ${data.failed} au eșuat</span>`;
+            data.errors.forEach(e => {
+              html += `<br><small>• ${e.name}: ${e.error}</small>`;
+            });
+          }
+          els.syncAllStatus.innerHTML = html;
+          showToast('✅', `${data.synced} asset-uri sincronizate!`, 'success');
+        } else {
+          els.syncAllStatus.className = 'server-save-status success';
+          els.syncAllStatus.innerHTML = `<strong>✅ ${data.message || 'Totul e sincronizat!'}</strong>`;
+          showToast('✅', 'Toate asset-urile sunt deja sincronizate', 'success');
+        }
+      } else {
+        els.syncAllStatus.className = 'server-save-status error';
+        els.syncAllStatus.innerHTML = `<strong>❌ ${data.error}</strong>`;
+        showToast('❌', data.error, 'error');
+      }
+    } catch (err) {
+      els.syncAllStatus.className = 'server-save-status error';
+      els.syncAllStatus.innerHTML = '<strong>❌ Eroare de rețea</strong>';
+      showToast('❌', 'Eroare la sincronizare', 'error');
+    }
+
+    els.btnSyncAll.disabled = false;
+    els.btnSyncAll.innerHTML = '<span>🚀</span> Sync All to Snipe-IT';
+  });
 
 })();
