@@ -8,8 +8,8 @@ const { generateCerts } = require('./generate-cert');
 const db = require('./db');
 
 const app = express();
-const HTTP_PORT = 3080;
-const HTTPS_PORT = 3443;
+const HTTP_PORT = 8180;
+const HTTPS_PORT = 8181;
 
 // ── Middleware ────────────────────────────────────────────────────
 
