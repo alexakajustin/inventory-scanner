@@ -1,0 +1,6 @@
+node_modules/
+Inventory-Scanner-Windows/
+*.zip
+inventory.db
+certs/
+.DS_Store
