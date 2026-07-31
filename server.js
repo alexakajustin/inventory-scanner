@@ -85,6 +85,46 @@ if (fs.existsSync('.env')) {
 // Preluăm cheia din variabilele de mediu pentru securitate (ca să nu fie respinsă de GitHub Push Protection)
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
+async function askGeminiText(text) {
+  if (GEMINI_API_KEY === "PUNE_CHEIA_AICI" || !GEMINI_API_KEY) return null;
+  const prompt = `
+Analizează textul următor (informații obținute de la un cod de bare pentru un produs hardware/IT).
+Extrage informațiile și răspunde STRICT cu un obiect JSON valid, fără formatare markdown, care să conțină:
+- "manufacturer": Producătorul.
+- "model": Modelul sau capacitatea produsului.
+- "part_number": Part Number (P/N), dacă există.
+- "category": Alege CEA MAI POTRIVITĂ categorie STRICT din: Laptop, Desktop, Server, Workstation, Monitor, CPU, GPU, RAM, SSD, HDD, Motherboard, Power Supply, Router, Switch, Access Point, Firewall, NAS, Keyboard, Mouse, Headset, Webcam, Docking Station, Printer, Scanner, Projector, Phone - VoIP, Smartphone, Tablet, Chair, Desk, Cabinet, Toolbox, Cable, Adapter, UPS. TREBUIE să alegi una din ele, ghicește dacă nu ești sigur. NU pune Uncategorized.
+- "estimated_price": Estimează prețul de piață (în RON) pentru acest produs. Returnează DOAR un număr întreg. TREBUIE să dai un preț estimat, oricât de vag. Nu pune null.
+Dacă nu găsești restul (producător, model, etc), poți pune null pentru ele.
+
+Date produs:
+${text}
+  `;
+  try {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: "application/json" }
+      })
+    });
+    const data = await response.json();
+    if (data.error) {
+       console.error("❌ Gemini API Error in UPC lookup:", data.error);
+       return null;
+    }
+    
+    let rawText = data.candidates[0].content.parts[0].text;
+    rawText = rawText.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
+    
+    return JSON.parse(rawText);
+  } catch (err) {
+    console.error("❌ Gemini Text Parse Error:", err);
+    return null;
+  }
+}
+
 app.post('/api/parse-ocr', async (req, res) => {
   const { image } = req.body;
   if (!image) return res.status(400).json({ error: 'No image provided' });
@@ -103,8 +143,8 @@ Extrage informațiile de pe etichetă și răspunde STRICT cu un obiect JSON val
 - "model": Modelul sau capacitatea produsului (ex. 850 EVO 250GB, MZ-75E250). Dacă nu-l găsești, pune null.
 - "serial": Numărul de serie (Serial Number / S/N). Ignoră codurile WWN (ex. 500...) sau EAN. Pune doar seria. Dacă nu o găsești, pune null.
 - "part_number": Part Number (P/N), dacă există. Altfel null.
-- "category": Alege CEA MAI POTRIVITĂ categorie STRICT din următoarea listă (dacă nu ești sigur, pune "Uncategorized"): Laptop, Desktop, Server, Workstation, Monitor, CPU, GPU, RAM, SSD, HDD, Motherboard, Power Supply, Router, Switch, Access Point, Firewall, NAS, Keyboard, Mouse, Headset, Webcam, Docking Station, Printer, Scanner, Projector, Phone - VoIP, Smartphone, Tablet, Chair, Desk, Cabinet, Toolbox, Cable, Adapter, UPS.
-- "estimated_price": Estimează prețul de piață (în RON) pentru acest produs. Returnează DOAR un număr întreg (ex. 150, 45, 2000). Dacă nu poți estima deloc, pune null.
+- "category": Alege CEA MAI POTRIVITĂ categorie STRICT din următoarea listă: Laptop, Desktop, Server, Workstation, Monitor, CPU, GPU, RAM, SSD, HDD, Motherboard, Power Supply, Router, Switch, Access Point, Firewall, NAS, Keyboard, Mouse, Headset, Webcam, Docking Station, Printer, Scanner, Projector, Phone - VoIP, Smartphone, Tablet, Chair, Desk, Cabinet, Toolbox, Cable, Adapter, UPS. TREBUIE să alegi una, ghicește dacă nu ești sigur.
+- "estimated_price": Estimează prețul de piață (în RON) pentru acest produs. Returnează DOAR un număr întreg (ex. 150, 45, 2000). TREBUIE să estimezi un preț oricât de vag. Nu pune null.
     `;
 
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`, {
@@ -260,6 +300,21 @@ app.get(['/api/lookup', '/api/lookup/:barcode(*)'], async (req, res) => {
         highest_price: item.highest_recorded_price || null,
         raw: item,
       };
+      
+      // Enhance with Gemini!
+      const textToParse = `Nume: ${item.title}\nBrand: ${item.brand || ''}\nModel: ${item.model || ''}\nDescriere: ${item.description || ''}`;
+      console.log(`🤖 Cerere Gemini pentru codul de bare: ${barcode}...`);
+      const aiData = await askGeminiText(textToParse);
+      
+      if (aiData) {
+         console.log(`🧠 [GEMINI AI UPC PARSED]:\n====================\n${JSON.stringify(aiData, null, 2)}\n====================\n`);
+         result.ai = aiData;
+         // Overwrite basic guesses with AI guesses if AI found something better
+         if (aiData.manufacturer) result.manufacturer = aiData.manufacturer;
+         if (aiData.model) result.model_name = aiData.model;
+         if (aiData.category && aiData.category !== 'Uncategorized') result.category = aiData.category;
+         if (aiData.estimated_price) result.lowest_price = aiData.estimated_price;
+      }
 
       db.setCachedLookup(barcode, result);
 

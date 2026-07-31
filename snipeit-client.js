@@ -189,16 +189,20 @@ class SnipeITClient {
 
     // Step 2: Category
     const categoryId = await this.findOrCreateCategory(localAsset.category);
-    console.log(`  ✅ Category ID: ${categoryId}`);
+    console.log(`  ✅ Category: ${localAsset.category} (ID: ${categoryId})`);
 
     // Step 3: Manufacturer
     const manufacturerId = await this.findOrCreateManufacturer(localAsset.manufacturer);
-    console.log(`  ✅ Manufacturer ID: ${manufacturerId}`);
+    console.log(`  ✅ Manufacturer: ${localAsset.manufacturer} (ID: ${manufacturerId})`);
 
     // Step 4: Model
     const modelName = localAsset.model_name || localAsset.name || 'Generic';
     const modelId = await this.findOrCreateModel(modelName, categoryId, manufacturerId);
-    console.log(`  ✅ Model ID: ${modelId}`);
+    console.log(`  ✅ Model: ${modelName} (ID: ${modelId})`);
+
+    if (localAsset.purchase_cost) {
+       console.log(`  💲 Purchase Cost: ${localAsset.purchase_cost} RON`);
+    }
 
     // Step 5: Create asset
     const snipeitId = await this.createHardware(localAsset, modelId, statusId);

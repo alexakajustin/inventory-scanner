@@ -479,10 +479,12 @@
       }
 
       // Clear form but keep barcode and auto-detect S/N
-      const ai = window.lastAiParse;
-      els.fieldName.value = ai ? `${ai.manufacturer || ''} ${ai.model || ''}`.trim() : '';
-      els.fieldManufacturer.value = ai ? (ai.manufacturer || '') : '';
-      els.fieldModel.value = ai ? (ai.model || '') : '';
+      const ai = window.lastAiParse || data.ai;
+      window.lastAiParse = ai; // save it so resetForm clears it and fields like P/N are retained
+
+      els.fieldName.value = data.name || (ai ? `${ai.manufacturer || ''} ${ai.model || ''}`.trim() : '');
+      els.fieldManufacturer.value = data.manufacturer || (ai ? (ai.manufacturer || '') : '');
+      els.fieldModel.value = data.model_name || (ai ? (ai.model || '') : '');
       els.fieldBarcode.value = data.barcode || '';
       
       if (ai && ai.category) {
