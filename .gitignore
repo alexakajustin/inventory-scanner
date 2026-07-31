@@ -6,3 +6,4 @@ certs/
 exports/
 public/images/
 .DS_Store
+.env

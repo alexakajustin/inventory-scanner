@@ -39,7 +39,6 @@
     fieldName: $('#field-name'),
     fieldManufacturer: $('#field-manufacturer'),
     fieldModel: $('#field-model'),
-    fieldModelNumber: $('#field-model-number'),
     btnSearchPrice: $('#btn-search-price'),
     fieldCategory: $('#field-category'),
     fieldSerial: $('#field-serial'),
@@ -303,10 +302,45 @@
           return candidates.length > 0 ? candidates[0] : null;
       }
 
-      const finalSN = extractSmartSN(text);
+      // Send text to Gemini for intelligent extraction
+      showToast('🧠', 'Gemini AI extrage datele...', 'info');
+      let finalSN = null;
+
+      try {
+        const geminiRes = await fetch('/api/parse-ocr', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        });
+        
+        if (!geminiRes.ok) {
+           const errData = await geminiRes.json();
+           throw new Error(errData.error || 'Eroare Gemini');
+        }
+        
+        const parsedData = await geminiRes.json();
+        
+        // Save globally so we can auto-fill forms later
+        window.lastAiParse = parsedData;
+        finalSN = parsedData.serial;
+        
+        if (parsedData.manufacturer || parsedData.model) {
+           console.log("🤖 Gemini AI a găsit și detalii hardware:", parsedData);
+           if (parsedData.manufacturer) els.fieldManufacturer.value = parsedData.manufacturer;
+           if (parsedData.model) els.fieldModel.value = parsedData.model;
+           if (parsedData.part_number) els.fieldNotes.value = "P/N: " + parsedData.part_number;
+           
+           // Trigger updateSearchLink manually
+           els.fieldModel.dispatchEvent(new Event('input'));
+        }
+
+      } catch (aiErr) {
+        console.warn("Gemini a eșuat, folosesc filtrul regex S/N fallback:", aiErr);
+        finalSN = extractSmartSN(text);
+      }
 
       if (finalSN) {
-        showToast('✅', `Neural OCR S/N: ${finalSN}`, 'success');
+        showToast('✅', `AI S/N: ${finalSN}`, 'success');
         onScanSuccess(finalSN);
       } else {
         showToast('⚠️', 'Nu s-a găsit S/N în imagine.', 'error');
@@ -376,6 +410,7 @@
   // ── Manual Input ─────────────────────────────────────────────
 
   els.btnManualLookup.addEventListener('click', () => {
+    window.lastAiParse = null;
     const code = els.manualBarcode.value.trim();
     if (code) lookupBarcode(code);
   });
@@ -383,6 +418,7 @@
   els.manualBarcode.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
+      window.lastAiParse = null;
       const code = els.manualBarcode.value.trim();
       if (code) lookupBarcode(code);
     }
@@ -437,7 +473,6 @@
       els.fieldName.value = data.name || '';
       els.fieldManufacturer.value = data.manufacturer || '';
       els.fieldModel.value = data.model_name || '';
-      els.fieldModelNumber.value = data.model_number || '';
       els.fieldBarcode.value = data.barcode || '';
       if (data.parsedSerial) {
         els.fieldSerial.value = data.parsedSerial;
@@ -490,12 +525,16 @@
       }
 
       // Clear form but keep barcode and auto-detect S/N
-      els.fieldName.value = '';
-      els.fieldManufacturer.value = '';
-      els.fieldModel.value = '';
-      els.fieldModelNumber.value = '';
+      const ai = window.lastAiParse;
+      els.fieldName.value = ai ? `${ai.manufacturer || ''} ${ai.model || ''}`.trim() : '';
+      els.fieldManufacturer.value = ai ? (ai.manufacturer || '') : '';
+      els.fieldModel.value = ai ? (ai.model || '') : '';
       els.fieldBarcode.value = data.barcode || '';
       els.fieldCategory.value = 'Uncategorized';
+      
+      if (window.lastAiParse && window.lastAiParse.part_number) {
+         els.fieldNotes.value = "P/N: " + window.lastAiParse.part_number;
+      }
       
       const isLikelySerial = data.parsedSerial || (data.barcode && !/^\d{8,14}$/.test(data.barcode));
       els.fieldSerial.value = data.parsedSerial || (isLikelySerial ? data.barcode : '');
@@ -527,6 +566,7 @@
 
   function resetForm() {
     isProcessingScan = false;
+    window.lastAiParse = null;
     els.assetForm.reset();
     els.resultImageWrapper.style.display = 'none';
     els.resultImage.src = '';
@@ -550,7 +590,6 @@
       name,
       manufacturer: els.fieldManufacturer.value.trim() || null,
       model_name: els.fieldModel.value.trim() || null,
-      model_number: els.fieldModelNumber.value.trim() || null,
       category: els.fieldCategory.value,
       purchase_cost: els.fieldCost.value ? parseFloat(els.fieldCost.value) : null,
       notes: els.fieldNotes.value.trim() || null,

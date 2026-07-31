@@ -73,6 +73,71 @@ app.post('/api/ocr-scan', async (req, res) => {
   }
 });
 
+const fs = require('fs');
+if (fs.existsSync('.env')) {
+  fs.readFileSync('.env', 'utf8').split('\n').forEach(line => {
+    const match = line.match(/^([^=]+)=(.*)$/);
+    if (match) process.env[match[1]] = match[2].replace('\r', '');
+  });
+}
+
+// --- GEMINI AI CONFIGURATION ---
+// Preluăm cheia din variabilele de mediu pentru securitate (ca să nu fie respinsă de GitHub Push Protection)
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+
+app.post('/api/parse-ocr', async (req, res) => {
+  const { text } = req.body;
+  if (!text) return res.status(400).json({ error: 'No text provided' });
+  
+  if (GEMINI_API_KEY === "PUNE_CHEIA_AICI" || !GEMINI_API_KEY) {
+     return res.status(500).json({ error: 'Gemini API Key lipseste din server.js! Pune cheia în variabila GEMINI_API_KEY.' });
+  }
+
+  try {
+    const prompt = `
+Extrage următoarele informații din textul brut OCR de mai jos, obținut de pe o componentă hardware (PC/IT).
+Răspunde STRICT cu un obiect JSON valid, fără formatare markdown, care să conțină următoarele chei:
+- "manufacturer": Producătorul (ex. SAMSUNG, KINGMAX, ASUS, CORSAIR). Dacă nu-l găsești, pune null.
+- "model": Modelul sau capacitatea produsului (ex. 850 EVO 250GB, MZ-75E250). Dacă nu-l găsești, pune null.
+- "serial": Numărul de serie (Serial Number / S/N). Ignoră codurile WWN (ex. 500...) sau EAN. Pune doar seria. Dacă nu o găsești, pune null.
+- "part_number": Part Number (P/N), dacă există. Altfel null.
+
+Text OCR brut:
+${text}
+    `;
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: "application/json"
+        }
+      })
+    });
+
+    const data = await response.json();
+    
+    if (data.error) {
+        console.error("Gemini API Error:", data.error);
+        return res.status(500).json({ error: data.error.message });
+    }
+
+    const aiText = data.candidates[0].content.parts[0].text;
+    const parsed = JSON.parse(aiText);
+    
+    console.log(`\n🧠 [GEMINI AI PARSED]:\n====================\n${JSON.stringify(parsed, null, 2)}\n====================\n`);
+    return res.json(parsed);
+
+  } catch (err) {
+    console.error("Gemini Parse error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.get(['/api/lookup', '/api/lookup/:barcode(*)'], async (req, res) => {
   let barcode = req.params.barcode || req.query.barcode || req.query.code;
 
