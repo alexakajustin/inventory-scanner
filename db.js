@@ -209,8 +209,13 @@ function setCachedLookup(barcode, data) {
 // ── Helpers ──────────────────────────────────────────────────
 
 function generateAssetTag() {
-  const count = getAssetCount() + 1;
-  return `ASSET-${String(count).padStart(5, '0')}`;
+  const row = oneRow("SELECT asset_tag FROM assets WHERE asset_tag LIKE 'ASSET-%' ORDER BY CAST(SUBSTR(asset_tag, 7) AS INTEGER) DESC LIMIT 1");
+  let nextNum = 1;
+  if (row && row.asset_tag) {
+    const num = parseInt(row.asset_tag.substring(6), 10);
+    if (!isNaN(num)) nextNum = num + 1;
+  }
+  return `ASSET-${String(nextNum).padStart(5, '0')}`;
 }
 
 function closeDb() {

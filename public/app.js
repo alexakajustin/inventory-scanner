@@ -73,7 +73,6 @@
     editName: $('#edit-name'),
     editManufacturer: $('#edit-manufacturer'),
     editModel: $('#edit-model'),
-    editModelNumber: $('#edit-model-number'),
     editCategory: $('#edit-category'),
     editSerial: $('#edit-serial'),
     editCost: $('#edit-cost'),
@@ -875,7 +874,6 @@
       els.editName.value = asset.name || '';
       els.editManufacturer.value = asset.manufacturer || '';
       els.editModel.value = asset.model_name || '';
-      els.editModelNumber.value = asset.model_number || '';
       els.editBarcode.value = asset.barcode || '';
       els.editSerial.value = asset.serial || '';
       els.editCost.value = asset.purchase_cost || '';
@@ -911,7 +909,6 @@
       name: els.editName.value.trim(),
       manufacturer: els.editManufacturer.value.trim() || null,
       model_name: els.editModel.value.trim() || null,
-      model_number: els.editModelNumber.value.trim() || null,
       category: els.editCategory.value,
       barcode: els.editBarcode.value.trim() || null,
       serial: els.editSerial.value.trim() || null,
