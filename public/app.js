@@ -189,7 +189,16 @@
 
   async function startScanner(target = 'lookup') {
     console.log(`[DEBUG] startScanner apelat. target=${target}, isScanning=${isScanning}`);
-    if (isScanning) return;
+    if (isScanning) {
+      // Restaurează interfața dacă camera rula deja în fundal
+      if (els.btnOcrScan) els.btnOcrScan.style.display = 'block';
+      if (els.scannerFreezeFrame) {
+        els.scannerFreezeFrame.style.display = 'none';
+        els.scannerFreezeFrame.src = '';
+      }
+      els.scannerContainer.classList.add('scanning');
+      return;
+    }
     scanTarget = target;
 
     try {
@@ -264,6 +273,11 @@
       showToast('⚠️', 'Pornește scanner-ul întâi!', 'error');
       return;
     }
+    if (isProcessingScan) {
+      showToast('⚠️', 'Așteaptă, se procesează deja o scanare...', 'warning');
+      return;
+    }
+    isProcessingScan = true;
     // Get the video element from html5-qrcode
     const video = document.querySelector('#reader video');
     if (!video) {
@@ -369,12 +383,12 @@
     els.scannerContainer.classList.remove('scanning');
   }
 
-  async function onScanSuccess(decodedText, isManualOverride = false) {
-    console.log(`[DEBUG] onScanSuccess apelat. decodedText=${decodedText}, scanTarget=${scanTarget}, isProcessingScan=${isProcessingScan}, isManualOverride=${isManualOverride}`);
+  async function onScanSuccess(decodedText) {
+    console.log(`[DEBUG] onScanSuccess apelat. decodedText=${decodedText}, scanTarget=${scanTarget}, isProcessingScan=${isProcessingScan}`);
     if (isProcessingScan) return;
     
-    if (!isAutoScanEnabled && !isManualOverride) {
-      // Ignorăm complet detecția codurilor de bare dacă user-ul a pus pe pauză și nu este o scanare manuală (OCR)
+    if (!isAutoScanEnabled) {
+      // Ignorăm complet detecția codurilor de bare dacă user-ul a pus pe pauză
       return;
     }
 
@@ -389,6 +403,7 @@
     }
 
     isProcessingScan = true;
+    if (els.btnOcrScan) els.btnOcrScan.style.display = 'none';
 
     // Vibrate for feedback
     if (navigator.vibrate) navigator.vibrate(200);
