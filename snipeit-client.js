@@ -274,6 +274,33 @@ class SnipeITClient {
 
     return snipeitId;
   }
+
+  // ── Pull All Assets ──────────────────────────────────────────
+
+  async pullAllAssets() {
+    console.log(`\n📥 Downloading assets from Snipe-IT...`);
+    let allAssets = [];
+    let offset = 0;
+    const limit = 500;
+    let hasMore = true;
+
+    while (hasMore) {
+      const data = await this.request('GET', `/hardware?limit=${limit}&offset=${offset}`);
+      if (data.rows && data.rows.length > 0) {
+        allAssets = allAssets.concat(data.rows);
+        offset += limit;
+      } else {
+        hasMore = false;
+      }
+      
+      if (data.total !== undefined && allAssets.length >= data.total) {
+        hasMore = false;
+      }
+    }
+
+    console.log(`✅ Downloaded ${allAssets.length} assets from Snipe-IT.`);
+    return allAssets;
+  }
 }
 
 module.exports = SnipeITClient;

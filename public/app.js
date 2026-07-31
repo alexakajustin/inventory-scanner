@@ -1134,22 +1134,26 @@
       const data = await resp.json();
 
       if (resp.ok) {
-        if (data.synced > 0) {
+        if (data.pulled > 0 || data.pushed > 0 || data.failed > 0) {
           els.syncAllStatus.className = 'server-save-status success';
           let html = `<strong>✅ Sincronizare completă!</strong><br>`;
-          html += `<span>📦 ${data.synced}/${data.total} asset-uri trimise</span>`;
+          html += `<span>📥 ${data.pulled} asset-uri preluate de pe server</span><br>`;
+          html += `<span>📤 ${data.pushed} asset-uri trimise spre server</span>`;
           if (data.failed > 0) {
-            html += `<br><span>⚠️ ${data.failed} au eșuat</span>`;
-            data.errors.forEach(e => {
-              html += `<br><small>• ${e.name}: ${e.error}</small>`;
-            });
+            html += `<br><span>⚠️ ${data.failed} acțiuni au eșuat</span>`;
+            if (data.errors) {
+              data.errors.forEach(e => {
+                html += `<br><small>• ${e.name || e.action}: ${e.error}</small>`;
+              });
+            }
           }
           els.syncAllStatus.innerHTML = html;
-          showToast('✅', `${data.synced} asset-uri sincronizate!`, 'success');
+          showToast('✅', `Sincronizare încheiată!`, 'success');
+          loadInventory(); // Refresh inventory list with pulled assets
         } else {
           els.syncAllStatus.className = 'server-save-status success';
-          els.syncAllStatus.innerHTML = `<strong>✅ ${data.message || 'Totul e sincronizat!'}</strong>`;
-          showToast('✅', 'Toate asset-urile sunt deja sincronizate', 'success');
+          els.syncAllStatus.innerHTML = `<strong>✅ ${data.message || 'Baza de date este complet sincronizată!'}</strong>`;
+          showToast('✅', 'Sincronizare la zi', 'success');
         }
       } else {
         els.syncAllStatus.className = 'server-save-status error';

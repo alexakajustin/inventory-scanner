@@ -514,9 +514,27 @@ app.get('/api/assets/:id', (req, res) => {
 });
 
 // Update asset
-app.put('/api/assets/:id', (req, res) => {
-  const updated = db.updateAsset(parseInt(req.params.id), req.body);
+app.put('/api/assets/:id', async (req, res) => {
+  const id = parseInt(req.params.id);
+  const updated = db.updateAsset(id, req.body);
   if (!updated) return res.status(404).json({ error: 'Asset not found or no changes' });
+
+  // Auto-sync edit to Snipe-IT if enabled or already synced
+  const asset = db.getAssetById(id);
+  if (asset && (db.getSetting('snipeit_autosync') === 'true' || asset.snipeit_id)) {
+    try {
+      const client = getSnipeClient();
+      if (client) {
+        const snipeitId = await client.pushAsset(asset);
+        if (!asset.snipeit_id) {
+          db.updateAssetSnipeId(id, snipeitId);
+        }
+      }
+    } catch (syncErr) {
+      console.error('⚠️ Auto-sync update failed:', syncErr.message);
+    }
+  }
+
   res.json({ success: true });
 });
 
@@ -684,30 +702,44 @@ app.post('/api/snipeit/push-all', async (req, res) => {
     return res.status(400).json({ error: 'Snipe-IT nu este configurat' });
   }
 
-  const unsynced = db.getUnsyncedAssets();
-  if (unsynced.length === 0) {
-    return res.json({ success: true, synced: 0, message: 'Toate asset-urile sunt deja sincronizate' });
-  }
-
-  let synced = 0;
+  let pulled = 0;
+  let pushed = 0;
   const errors = [];
 
+  // Step 1: PULL from Snipe-IT
+  try {
+    const remoteAssets = await client.pullAllAssets();
+    for (const remote of remoteAssets) {
+      try {
+        db.upsertAssetFromSnipeIT(remote);
+        pulled++;
+      } catch (dbErr) {
+        console.error(`❌ DB Upsert failed for ID ${remote.id}:`, dbErr.message);
+      }
+    }
+  } catch (err) {
+    console.error('❌ Pull all failed:', err.message);
+    errors.push({ action: 'pull', error: err.message });
+  }
+
+  // Step 2: PUSH unsynced assets to Snipe-IT
+  const unsynced = db.getUnsyncedAssets();
   for (const asset of unsynced) {
     try {
       const snipeitId = await client.pushAsset(asset);
       db.updateAssetSnipeId(asset.id, snipeitId);
-      synced++;
+      pushed++;
     } catch (err) {
       console.error(`❌ Push failed for "${asset.name}":`, err.message);
-      errors.push({ name: asset.name, error: err.message });
+      errors.push({ name: asset.name, action: 'push', error: err.message });
     }
   }
 
   res.json({
     success: true,
-    synced,
+    pulled,
+    pushed,
     failed: errors.length,
-    total: unsynced.length,
     errors: errors.length > 0 ? errors : undefined,
   });
 });

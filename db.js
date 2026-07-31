@@ -259,6 +259,43 @@ function getUnsyncedAssets() {
   return allRows('SELECT * FROM assets WHERE snipeit_id IS NULL ORDER BY created_at DESC');
 }
 
+function upsertAssetFromSnipeIT(snipeAsset) {
+  if (!snipeAsset || !snipeAsset.id) return;
+  const snipeId = snipeAsset.id;
+  const tag = snipeAsset.asset_tag;
+  const serial = snipeAsset.serial || null;
+  const name = snipeAsset.name || (snipeAsset.model ? snipeAsset.model.name : 'Unknown');
+  const manufacturer = snipeAsset.manufacturer ? snipeAsset.manufacturer.name : null;
+  const model_name = snipeAsset.model ? snipeAsset.model.name : null;
+  const category = snipeAsset.category ? snipeAsset.category.name : 'Uncategorized';
+  const cost = snipeAsset.purchase_cost ? parseFloat(snipeAsset.purchase_cost) : null;
+  const notes = snipeAsset.notes || null;
+  const status = snipeAsset.status_label ? snipeAsset.status_label.name : 'Ready to Deploy';
+
+  let localAsset = oneRow('SELECT id FROM assets WHERE snipeit_id = ? OR asset_tag = ?', [snipeId, tag]);
+
+  if (localAsset) {
+    updateAsset(localAsset.id, {
+      snipeit_id: snipeId,
+      asset_tag: tag,
+      serial,
+      name,
+      manufacturer,
+      model_name,
+      category,
+      purchase_cost: cost,
+      notes,
+      status
+    });
+  } else {
+    db.run(`
+      INSERT INTO assets (snipeit_id, asset_tag, serial, name, manufacturer, model_name, category, purchase_cost, notes, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [snipeId, tag, serial, name, manufacturer, model_name, category, cost, notes, status]);
+    saveToFile();
+  }
+}
+
 module.exports = {
   initDb,
   createAsset,
@@ -275,5 +312,6 @@ module.exports = {
   getAllSettings,
   updateAssetSnipeId,
   getUnsyncedAssets,
+  upsertAssetFromSnipeIT,
   closeDb,
 };
