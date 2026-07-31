@@ -114,33 +114,55 @@
               <label for="field-category">Categorie</label>
               <select id="field-category" name="category">
                 <option value="Uncategorized">Uncategorized</option>
-                <option value="Laptop">Laptop</option>
-                <option value="Desktop">Desktop</option>
-                <option value="Workstation">Workstation</option>
-                <option value="Monitor">Monitor</option>
-                <option value="RAM">RAM</option>
-                <option value="SSD">SSD</option>
-                <option value="HDD">HDD</option>
-                <option value="Switch">Switch</option>
-                <option value="Router">Router</option>
-                <option value="Access Point">Access Point</option>
-                <option value="Firewall">Firewall</option>
-                <option value="Server">Server</option>
-                <option value="UPS">UPS</option>
-                <option value="Printer">Printer</option>
-                <option value="Scanner">Scanner</option>
-                <option value="Keyboard">Keyboard</option>
-                <option value="Mouse">Mouse</option>
-                <option value="Headset">Headset</option>
-                <option value="Webcam">Webcam</option>
-                <option value="Docking Station">Docking Station</option>
-                <option value="Smartphone">Smartphone</option>
-                <option value="Tablet">Tablet</option>
-                <option value="Cable">Cable</option>
-                <option value="Adapter">Adapter</option>
-                <option value="NAS">NAS</option>
-                <option value="Projector">Projector</option>
-                <option value="Phone - VoIP">Phone - VoIP</option>
+                <optgroup label="IT Hardware">
+                  <option value="Laptop">Laptop</option>
+                  <option value="Desktop">Desktop / PC</option>
+                  <option value="Server">Server</option>
+                  <option value="Workstation">Workstation</option>
+                  <option value="Monitor">Monitor</option>
+                </optgroup>
+                <optgroup label="Componente Interne">
+                  <option value="CPU">Procesor (CPU)</option>
+                  <option value="GPU">Placă Video (GPU)</option>
+                  <option value="RAM">Memorie RAM</option>
+                  <option value="SSD">SSD</option>
+                  <option value="HDD">HDD</option>
+                  <option value="Motherboard">Placă de bază</option>
+                  <option value="Power Supply">Sursă (PSU)</option>
+                </optgroup>
+                <optgroup label="Networking">
+                  <option value="Router">Router</option>
+                  <option value="Switch">Switch</option>
+                  <option value="Access Point">Access Point</option>
+                  <option value="Firewall">Firewall</option>
+                  <option value="NAS">NAS / Stocare Rețea</option>
+                </optgroup>
+                <optgroup label="Periferice & Accesorii">
+                  <option value="Keyboard">Tastatură</option>
+                  <option value="Mouse">Mouse</option>
+                  <option value="Headset">Căști</option>
+                  <option value="Webcam">Webcam</option>
+                  <option value="Docking Station">Docking Station</option>
+                </optgroup>
+                <optgroup label="Echipamente Birou">
+                  <option value="Printer">Imprimantă</option>
+                  <option value="Scanner">Scanner</option>
+                  <option value="Projector">Proiector</option>
+                  <option value="Phone - VoIP">Telefon VoIP</option>
+                  <option value="Smartphone">Smartphone</option>
+                  <option value="Tablet">Tabletă</option>
+                </optgroup>
+                <optgroup label="Mobilier & Birotică">
+                  <option value="Chair">Scaun</option>
+                  <option value="Desk">Birou</option>
+                  <option value="Cabinet">Dulap / Fișet</option>
+                </optgroup>
+                <optgroup label="Scule & Diverse">
+                  <option value="Toolbox">Trusă scule</option>
+                  <option value="Cable">Cablu</option>
+                  <option value="Adapter">Adaptor</option>
+                  <option value="UPS">UPS</option>
+                </optgroup>
               </select>
             </div>
             <div class="form-group">
@@ -324,40 +346,58 @@
                 <input type="text" id="edit-model" name="model_name">
               </div>
               <div class="form-group">
-                <label for="edit-model-number">Model Number</label>
-                <input type="text" id="edit-model-number" name="model_number">
-              </div>
-              <div class="form-group">
                 <label for="edit-category">Categorie</label>
                 <select id="edit-category" name="category">
                   <option value="Uncategorized">Uncategorized</option>
-                  <option value="Laptop">Laptop</option>
-                  <option value="Desktop">Desktop</option>
-                  <option value="Workstation">Workstation</option>
-                  <option value="Monitor">Monitor</option>
-                  <option value="RAM">RAM</option>
-                  <option value="SSD">SSD</option>
-                  <option value="HDD">HDD</option>
-                  <option value="Switch">Switch</option>
-                  <option value="Router">Router</option>
-                  <option value="Access Point">Access Point</option>
-                  <option value="Firewall">Firewall</option>
-                  <option value="Server">Server</option>
-                  <option value="UPS">UPS</option>
-                  <option value="Printer">Printer</option>
-                  <option value="Scanner">Scanner</option>
-                  <option value="Keyboard">Keyboard</option>
-                  <option value="Mouse">Mouse</option>
-                  <option value="Headset">Headset</option>
-                  <option value="Webcam">Webcam</option>
-                  <option value="Docking Station">Docking Station</option>
-                  <option value="Smartphone">Smartphone</option>
-                  <option value="Tablet">Tablet</option>
-                  <option value="Cable">Cable</option>
-                  <option value="Adapter">Adapter</option>
-                  <option value="NAS">NAS</option>
-                  <option value="Projector">Projector</option>
-                  <option value="Phone - VoIP">Phone - VoIP</option>
+                  <optgroup label="IT Hardware">
+                    <option value="Laptop">Laptop</option>
+                    <option value="Desktop">Desktop / PC</option>
+                    <option value="Server">Server</option>
+                    <option value="Workstation">Workstation</option>
+                    <option value="Monitor">Monitor</option>
+                  </optgroup>
+                  <optgroup label="Componente Interne">
+                    <option value="CPU">Procesor (CPU)</option>
+                    <option value="GPU">Placă Video (GPU)</option>
+                    <option value="RAM">Memorie RAM</option>
+                    <option value="SSD">SSD</option>
+                    <option value="HDD">HDD</option>
+                    <option value="Motherboard">Placă de bază</option>
+                    <option value="Power Supply">Sursă (PSU)</option>
+                  </optgroup>
+                  <optgroup label="Networking">
+                    <option value="Router">Router</option>
+                    <option value="Switch">Switch</option>
+                    <option value="Access Point">Access Point</option>
+                    <option value="Firewall">Firewall</option>
+                    <option value="NAS">NAS / Stocare Rețea</option>
+                  </optgroup>
+                  <optgroup label="Periferice & Accesorii">
+                    <option value="Keyboard">Tastatură</option>
+                    <option value="Mouse">Mouse</option>
+                    <option value="Headset">Căști</option>
+                    <option value="Webcam">Webcam</option>
+                    <option value="Docking Station">Docking Station</option>
+                  </optgroup>
+                  <optgroup label="Echipamente Birou">
+                    <option value="Printer">Imprimantă</option>
+                    <option value="Scanner">Scanner</option>
+                    <option value="Projector">Proiector</option>
+                    <option value="Phone - VoIP">Telefon VoIP</option>
+                    <option value="Smartphone">Smartphone</option>
+                    <option value="Tablet">Tabletă</option>
+                  </optgroup>
+                  <optgroup label="Mobilier & Birotică">
+                    <option value="Chair">Scaun</option>
+                    <option value="Desk">Birou</option>
+                    <option value="Cabinet">Dulap / Fișet</option>
+                  </optgroup>
+                  <optgroup label="Scule & Diverse">
+                    <option value="Toolbox">Trusă scule</option>
+                    <option value="Cable">Cablu</option>
+                    <option value="Adapter">Adaptor</option>
+                    <option value="UPS">UPS</option>
+                  </optgroup>
                 </select>
               </div>
               <div class="form-group">

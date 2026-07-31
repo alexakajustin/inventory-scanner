@@ -73,7 +73,6 @@ app.post('/api/ocr-scan', async (req, res) => {
   }
 });
 
-const fs = require('fs');
 if (fs.existsSync('.env')) {
   fs.readFileSync('.env', 'utf8').split('\n').forEach(line => {
     const match = line.match(/^([^=]+)=(.*)$/);
