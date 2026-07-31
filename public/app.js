@@ -25,6 +25,7 @@
     btnToggleAutoscan: $('#btn-toggle-autoscan'),
     autoscanIcon: $('#autoscan-icon'),
     scannerContainer: $('#scanner-container'),
+    scannerControls: $('.scanner-controls'),
     scannerFreezeFrame: $('#scanner-freeze-frame'),
     manualBarcode: $('#manual-barcode'),
     btnManualLookup: $('#btn-manual-lookup'),
@@ -490,6 +491,7 @@
 
     // Hide the scanner container completely when showing results to prevent a black frozen box
     els.scannerContainer.style.display = 'none';
+    if (els.scannerControls) els.scannerControls.style.display = 'none';
     if (els.scannerFreezeFrame) els.scannerFreezeFrame.style.display = 'none';
 
     if (data.found) {
@@ -612,6 +614,7 @@
   els.btnCloseResult.addEventListener('click', () => {
     els.scanResult.style.display = 'none';
     els.scannerContainer.style.display = 'block';
+    if (els.scannerControls) els.scannerControls.style.display = 'flex';
     resetForm();
     startScanner('lookup');
   });
@@ -619,6 +622,7 @@
   els.btnScanAnother.addEventListener('click', () => {
     els.scanResult.style.display = 'none';
     els.scannerContainer.style.display = 'block';
+    if (els.scannerControls) els.scannerControls.style.display = 'flex';
     resetForm();
     startScanner();
   });
