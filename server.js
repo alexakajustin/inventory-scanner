@@ -174,10 +174,10 @@ app.post('/api/parse-ocr', async (req, res) => {
     const prompt = `
 Analizează imaginea de mai jos, care conține o componentă hardware/echipament IT (sau eticheta acesteia).
 Extrage informațiile de pe etichetă și răspunde STRICT cu un obiect JSON valid, fără formatare markdown, care să conțină următoarele chei:
-- "manufacturer": Producătorul (ex. SAMSUNG, KINGMAX, ASUS, CORSAIR). Dacă nu-l găsești, pune null.
+- "manufacturer": Producătorul (ex. SAMSUNG, KINGMAX, ASUS, CORSAIR, Goobay). Dacă nu-l găsești, pune null.
 - "model": Modelul sau capacitatea produsului (ex. 850 EVO 250GB, MZ-75E250). Dacă nu-l găsești, pune null.
-- "serial": Numărul de serie (Serial Number / S/N). Ignoră codurile WWN (ex. 500...) sau EAN. Pune doar seria. Dacă nu o găsești, pune null.
-- "part_number": Part Number (P/N), dacă există. Altfel null.
+- "serial": Numărul de serie (Serial Number / S/N). FOARTE IMPORTANT: Chiar dacă nu scrie explicit "S/N", dacă observi un șir de caractere/cifre (ex. lângă un cod de bare) care identifică produsul, extrage-l aici! Ignoră codurile WWN (ex. 500...). Dacă nu găsești nimic care să semene a serie sau cod de bare, pune null.
+- "part_number": Part Number (P/N / Art. No), dacă există. Altfel null.
 - "category": Alege CEA MAI POTRIVITĂ categorie STRICT din următoarea listă: Laptop, Desktop, Server, Workstation, Monitor, CPU, GPU, RAM, SSD, HDD, Motherboard, Power Supply, Router, Switch, Access Point, Firewall, NAS, Keyboard, Mouse, Headset, Webcam, Docking Station, Printer, Scanner, Projector, Phone - VoIP, Smartphone, Tablet, Chair, Desk, Cabinet, Toolbox, Cable, Adapter, UPS. TREBUIE să alegi una, ghicește dacă nu ești sigur.
 - "estimated_price": Estimează prețul de piață (în RON) pentru acest produs. Returnează DOAR un număr întreg (ex. 150, 45, 2000). TREBUIE să estimezi un preț oricât de vag. Nu pune null.
     `;
@@ -232,7 +232,14 @@ app.get(['/api/lookup', '/api/lookup/:barcode(*)'], async (req, res) => {
 
   barcode = barcode.trim();
 
-  // Smart QR Code / S/N Parsing
+  // Verificăm dacă Auto-Scan este oprit din client
+  const autoscanParam = req.query.autoscan;
+  const isManual = req.query.manual === 'true' || req.query.manual === '1';
+  
+  if (autoscanParam === 'false' && !isManual) {
+    console.log(`⏸️ [BACKEND] Auto-Scan este OPRIT pe client. Refuzăm căutarea automată Snipe-IT/Cache pentru: ${barcode}`);
+    return res.json({ found: false, autoscanDisabled: true, barcode });
+  }
   let parsedSerial = null;
   let parsedBarcode = barcode;
 
@@ -246,7 +253,48 @@ app.get(['/api/lookup', '/api/lookup/:barcode(*)'], async (req, res) => {
     parsedSerial = barcode.replace(/^(s\/n|sn|serial)[:\s-]+/i, '').trim();
   }
 
-  // Check cache first
+  // Check Snipe-IT First!
+  const snipeClient = getSnipeClient();
+  if (snipeClient) {
+    console.log(`🌐 Caut în Snipe-IT seria sau eticheta: ${parsedSerial || barcode}...`);
+    try {
+      let snipeAsset = null;
+      if (parsedSerial) {
+        snipeAsset = await snipeClient.findAssetBySerial(parsedSerial);
+      }
+      if (!snipeAsset) {
+        snipeAsset = await snipeClient.findAssetByTag(barcode); // If barcode is actually an asset tag
+      }
+      if (!snipeAsset && !parsedSerial) {
+        snipeAsset = await snipeClient.findAssetBySerial(barcode); // Sometimes barcode IS the serial
+      }
+
+      if (snipeAsset) {
+        console.log(`✅ Găsit în Snipe-IT! ID: ${snipeAsset.id}, Nume: ${snipeAsset.name}`);
+        const result = {
+          source: 'snipeit',
+          found: true,
+          snipeit_id: snipeAsset.id,
+          barcode: barcode,
+          parsedSerial: snipeAsset.serial || parsedSerial,
+          name: snipeAsset.name || '',
+          manufacturer: snipeAsset.model?.manufacturer?.name || '',
+          model_name: snipeAsset.model?.name || '',
+          category: snipeAsset.category?.name || '',
+          notes: snipeAsset.notes || '',
+          lowest_price: snipeAsset.purchase_cost || '',
+          raw_snipeit: snipeAsset,
+        };
+        // Also cache it locally to speed up future lookups
+        db.setCachedLookup(barcode, result);
+        return res.json(result);
+      }
+    } catch (err) {
+       console.error(`⚠️ Eroare la căutarea în Snipe-IT: ${err.message}`);
+    }
+  }
+
+  // Check cache locally
   const cached = db.getCachedLookup(barcode);
   if (cached) {
     console.log(`📦 Cache hit for barcode: ${barcode}`);

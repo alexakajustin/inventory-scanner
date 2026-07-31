@@ -22,6 +22,8 @@
     tabContents: $$('.tab-content'),
     // Scanner
     btnOcrScan: $('#btn-ocr-scan'),
+    btnToggleAutoscan: $('#btn-toggle-autoscan'),
+    autoscanIcon: $('#autoscan-icon'),
     scannerContainer: $('#scanner-container'),
     scannerFreezeFrame: $('#scanner-freeze-frame'),
     manualBarcode: $('#manual-barcode'),
@@ -162,6 +164,25 @@
   });
 
   // ── Barcode & QR Scanner ─────────────────────────────────────
+  let isAutoScanEnabled = false;
+
+  if (els.btnToggleAutoscan) {
+    els.btnToggleAutoscan.addEventListener('click', () => {
+      isAutoScanEnabled = !isAutoScanEnabled;
+      if (isAutoScanEnabled) {
+        els.btnToggleAutoscan.classList.remove('btn-outline');
+        els.btnToggleAutoscan.classList.add('btn-secondary');
+        els.autoscanIcon.textContent = '⚡';
+        showToast('⚡', 'Auto-Scan activat', 'info');
+      } else {
+        els.btnToggleAutoscan.classList.remove('btn-secondary');
+        els.btnToggleAutoscan.classList.add('btn-outline');
+        els.autoscanIcon.textContent = '⏸️';
+        showToast('⏸️', 'Auto-Scan pus pe pauză (scanează manual cu OCR)', 'warning');
+      }
+    });
+  }
+
   if (els.btnOcrScan) {
     els.btnOcrScan.addEventListener('click', doOcrScan);
   }
@@ -188,10 +209,17 @@
         { facingMode: "environment" },
         {
           fps: 15,
+          qrbox: function(viewfinderWidth, viewfinderHeight) {
+             let minEdgePercentage = 0.85; 
+             let minEdgeSize = Math.min(viewfinderWidth, viewfinderHeight);
+             let qrboxSize = Math.floor(minEdgeSize * minEdgePercentage);
+             return { width: qrboxSize, height: qrboxSize };
+          },
           videoConstraints: {
             facingMode: "environment",
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
+            width: { ideal: 3840 },
+            height: { ideal: 2160 },
+            advanced: [{ focusMode: "continuous" }]
           }
         },
         onScanSuccess
@@ -281,7 +309,9 @@
       
       // Save globally so we can auto-fill forms later
       window.lastAiParse = parsedData;
-      let finalSN = parsedData.serial;
+      
+      // Fallback fallback fallback
+      let finalSN = parsedData.serial || parsedData.part_number || parsedData.barcode || null;
       
       if (parsedData.manufacturer || parsedData.model) {
          console.log("🤖 Gemini AI a găsit și detalii hardware:", parsedData);
@@ -291,13 +321,29 @@
          
          // Trigger updateSearchLink manually
          els.fieldModel.dispatchEvent(new Event('input'));
+         
+         // If we STILL don't have a finalSN but we have a model, use the model as the fake serial so we don't crash
+         if (!finalSN && parsedData.model) finalSN = parsedData.model;
       }
 
       if (finalSN) {
-        showToast('✅', `AI S/N: ${finalSN}`, 'success');
-        onScanSuccess(finalSN);
+        showToast('✅', `Date OCR extrase!`, 'success');
+        
+        // Directly populate the form instead of triggering the lookup flow
+        showResult({
+           found: true,
+           source: 'ocr',
+           barcode: parsedData.barcode || '',
+           parsedSerial: parsedData.serial || '',
+           name: parsedData.model || '',
+           manufacturer: parsedData.manufacturer || '',
+           model_name: parsedData.model || '',
+           category: parsedData.category || '',
+           lowest_price: parsedData.estimated_price || ''
+        });
+        
       } else {
-        showToast('⚠️', 'Eroare sau nu s-a găsit S/N în imagine.', 'error');
+        showToast('⚠️', 'Nu s-a găsit niciun cod, producător sau model în imagine.', 'error');
         startScanner('lookup');
       }
     } catch (err) {
@@ -323,9 +369,14 @@
     els.scannerContainer.classList.remove('scanning');
   }
 
-  async function onScanSuccess(decodedText) {
-    console.log(`[DEBUG] onScanSuccess apelat. decodedText=${decodedText}, scanTarget=${scanTarget}, isProcessingScan=${isProcessingScan}`);
+  async function onScanSuccess(decodedText, isManualOverride = false) {
+    console.log(`[DEBUG] onScanSuccess apelat. decodedText=${decodedText}, scanTarget=${scanTarget}, isProcessingScan=${isProcessingScan}, isManualOverride=${isManualOverride}`);
     if (isProcessingScan) return;
+    
+    if (!isAutoScanEnabled && !isManualOverride) {
+      // Ignorăm complet detecția codurilor de bare dacă user-ul a pus pe pauză și nu este o scanare manuală (OCR)
+      return;
+    }
 
     // Smart Filter: Ignore WWN & EAN when explicitly hunting for Serial Number
     if (scanTarget === 'serial') {
@@ -338,9 +389,6 @@
     }
 
     isProcessingScan = true;
-
-    // Stop scanner immediately to prevent double-scans
-    await stopScanner();
 
     // Vibrate for feedback
     if (navigator.vibrate) navigator.vibrate(200);
@@ -364,7 +412,7 @@
   els.btnManualLookup.addEventListener('click', () => {
     window.lastAiParse = null;
     const code = els.manualBarcode.value.trim();
-    if (code) lookupBarcode(code);
+    if (code) lookupBarcode(code, true);
   });
 
   els.manualBarcode.addEventListener('keydown', (e) => {
@@ -372,14 +420,20 @@
       e.preventDefault();
       window.lastAiParse = null;
       const code = els.manualBarcode.value.trim();
-      if (code) lookupBarcode(code);
+      if (code) lookupBarcode(code, true);
     }
   });
 
   // ── Barcode Lookup ───────────────────────────────────────────
 
-  async function lookupBarcode(barcode) {
-    console.log(`[DEBUG] lookupBarcode apelat cu barcode=${barcode}`);
+  async function lookupBarcode(barcode, isManual = false) {
+    console.log(`[DEBUG] lookupBarcode apelat cu barcode=${barcode}, isManual=${isManual}, isAutoScanEnabled=${isAutoScanEnabled}`);
+    
+    if (!isAutoScanEnabled && !isManual) {
+      console.log(`⏸️ [FRONTEND] Refuzăm lookup-ul deoarece Auto-Scan este OPRIT.`);
+      return;
+    }
+
     // Show loading state
     showResult({
       found: null, // loading
@@ -387,10 +441,10 @@
     });
 
     try {
-      const resp = await fetch(`/api/lookup?barcode=${encodeURIComponent(barcode)}`);
+      const resp = await fetch(`/api/lookup?barcode=${encodeURIComponent(barcode)}&autoscan=${isAutoScanEnabled}&manual=${isManual}`);
       const data = await resp.json();
 
-      if (resp.ok) {
+      if (resp.ok && data.found !== false) {
         showResult(data);
       } else {
         showResult({ found: false, barcode, error: data.error });
@@ -419,17 +473,25 @@
       return;
     }
 
+    // Hide the scanner container completely when showing results to prevent a black frozen box
+    els.scannerContainer.style.display = 'none';
+    if (els.scannerFreezeFrame) els.scannerFreezeFrame.style.display = 'none';
+
     if (data.found) {
       statusEl.innerHTML = '<span class="status-icon">✅</span><span class="status-text">Produs găsit!</span>';
       statusEl.className = 'result-status found';
 
       // Fill form
       els.fieldName.value = data.name || '';
-      els.fieldManufacturer.value = data.manufacturer || '';
-      els.fieldModel.value = data.model_name || '';
+      
+      // Dacă avem date proaspete din OCR, le prioritizăm, altfel folosim ce a venit din DB/API
+      const ai = window.lastAiParse || {};
+      
+      els.fieldManufacturer.value = ai.manufacturer || data.manufacturer || '';
+      els.fieldModel.value = ai.model || data.model_name || '';
       els.fieldBarcode.value = data.barcode || '';
-      if (data.parsedSerial) {
-        els.fieldSerial.value = data.parsedSerial;
+      if (data.parsedSerial || ai.serial) {
+        els.fieldSerial.value = data.parsedSerial || ai.serial;
       }
 
       // Set category
@@ -463,8 +525,18 @@
       }
 
       // Source indicator
-      if (data.source === 'cache') {
-        showToast('📦', 'Rezultat din cache (nu s-a consumat API call)', 'success');
+      if (data.source === 'snipeit') {
+        statusEl.innerHTML = `<span class="status-icon">🔄</span><span class="status-text">Găsit în Snipe-IT (ID: ${data.snipeit_id})</span>`;
+        statusEl.className = 'result-status found-snipeit';
+        showToast('🔄', 'Sincronizat bidirecțional din Snipe-IT!', 'success');
+        
+        // We inject the snipeit_id into a hidden field or global state so the save button knows it's an update
+        window.currentSnipeitId = data.snipeit_id;
+      } else {
+        if (data.source === 'cache') {
+          showToast('📦', 'Rezultat din cache (nu s-a consumat API call)', 'success');
+        }
+        window.currentSnipeitId = null;
       }
 
       updateSearchLink();
@@ -524,12 +596,14 @@
 
   els.btnCloseResult.addEventListener('click', () => {
     els.scanResult.style.display = 'none';
+    els.scannerContainer.style.display = 'block';
     resetForm();
     startScanner('lookup');
   });
 
   els.btnScanAnother.addEventListener('click', () => {
     els.scanResult.style.display = 'none';
+    els.scannerContainer.style.display = 'block';
     resetForm();
     startScanner();
   });
@@ -564,6 +638,7 @@
       purchase_cost: els.fieldCost.value ? parseFloat(els.fieldCost.value) : null,
       notes: els.fieldNotes.value.trim() || null,
       image_url: els.resultImage.src || null,
+      snipeit_id: window.currentSnipeitId || null,
     };
 
     try {

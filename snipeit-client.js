@@ -178,6 +178,62 @@ class SnipeITClient {
     throw new Error('Nu am putut crea asset-ul în Snipe-IT');
   }
 
+  // ── Update Asset (hardware) ──────────────────────────────────
+
+  async updateHardware(id, asset, modelId, statusId) {
+    const payload = {};
+    if (asset.asset_tag) payload.asset_tag = asset.asset_tag;
+    if (modelId) payload.model_id = modelId;
+    if (statusId) payload.status_id = statusId;
+    if (asset.name) payload.name = asset.name;
+    if (asset.serial) payload.serial = asset.serial;
+    if (asset.purchase_cost) payload.purchase_cost = String(asset.purchase_cost);
+    if (asset.notes) payload.notes = asset.notes;
+
+    const updated = await this.request('PATCH', `/hardware/${id}`, payload);
+
+    if (updated.payload && updated.payload.id) {
+      return updated.payload.id;
+    }
+
+    throw new Error(`Nu am putut actualiza asset-ul ${id} în Snipe-IT`);
+  }
+
+  // ── Find Asset ───────────────────────────────────────────────
+  
+  async findAssetBySerial(serial) {
+    if (!serial) return null;
+    try {
+      const search = await this.request('GET', `/hardware/byserial/${encodeURIComponent(serial)}`);
+      if (search.rows && search.rows.length > 0) {
+        return search.rows[0];
+      }
+    } catch (e) {
+      // Fallback search format if byserial endpoint doesn't work in this Snipe-IT version
+      const fallbackSearch = await this.request('GET', `/hardware?search=${encodeURIComponent(serial)}`);
+      if (fallbackSearch.rows && fallbackSearch.rows.length > 0) {
+        const exact = fallbackSearch.rows.find(a => a.serial === serial);
+        if (exact) return exact;
+      }
+    }
+    return null;
+  }
+
+  async findAssetByTag(tag) {
+    if (!tag) return null;
+    try {
+      const search = await this.request('GET', `/hardware/bytag/${encodeURIComponent(tag)}`);
+      if (search.id) return search; // bytag usually returns the direct object if exact match
+    } catch(e) {
+      const fallbackSearch = await this.request('GET', `/hardware?search=${encodeURIComponent(tag)}`);
+      if (fallbackSearch.rows && fallbackSearch.rows.length > 0) {
+        const exact = fallbackSearch.rows.find(a => a.asset_tag === tag);
+        if (exact) return exact;
+      }
+    }
+    return null;
+  }
+
   // ── Orchestrator: push a complete asset ──────────────────────
 
   async pushAsset(localAsset) {
@@ -204,9 +260,17 @@ class SnipeITClient {
        console.log(`  💲 Purchase Cost: ${localAsset.purchase_cost} RON`);
     }
 
-    // Step 5: Create asset
-    const snipeitId = await this.createHardware(localAsset, modelId, statusId);
-    console.log(`  ✅ Asset creat în Snipe-IT cu ID: ${snipeitId}`);
+    // Step 5: Check if it already exists (if pushed via API from elsewhere)
+    let snipeitId = localAsset.snipeit_id;
+    if (snipeitId) {
+       console.log(`  🔄 Actualizez asset-ul existent în Snipe-IT (ID: ${snipeitId})...`);
+       await this.updateHardware(snipeitId, localAsset, modelId, statusId);
+       console.log(`  ✅ Asset actualizat cu succes.`);
+    } else {
+       // Create asset
+       snipeitId = await this.createHardware(localAsset, modelId, statusId);
+       console.log(`  ✅ Asset creat în Snipe-IT cu ID: ${snipeitId}`);
+    }
 
     return snipeitId;
   }

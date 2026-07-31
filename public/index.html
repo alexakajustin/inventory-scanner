@@ -57,9 +57,12 @@
           <div id="reader" style="width: 100%; height: 100%; border-radius: inherit; background: #000; position: relative; overflow: hidden;"></div>
           <img id="scanner-freeze-frame" style="display:none; position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; border-radius: inherit; z-index: 10;">
         </div>
-        <div class="scanner-controls">
-          <button id="btn-ocr-scan" class="btn btn-accent btn-lg" style="margin-top: 10px;">
-            <span>🤖</span> Citește Text (OCR S/N)
+        <div class="scanner-controls" style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
+          <button id="btn-toggle-autoscan" class="btn btn-outline btn-lg">
+            <span id="autoscan-icon">⏸️</span> Auto-Scan
+          </button>
+          <button id="btn-ocr-scan" class="btn btn-accent btn-lg">
+            <span>🤖</span> OCR Etichetă
           </button>
         </div>
         <div class="manual-input">
@@ -427,6 +430,6 @@
   <!-- Html5Qrcode (for 2D/1D barcodes) & Tesseract.js (for OCR text) -->
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-  <script src="app.js?v=4"></script>
+  <script src="app.js?v=1001"></script>
 </body>
 </html>

@@ -104,8 +104,8 @@ function createAsset(asset) {
   const tag = asset.asset_tag || generateAssetTag();
 
   db.run(`
-    INSERT INTO assets (barcode, asset_tag, serial, name, manufacturer, model_name, model_number, category, purchase_cost, notes, status, image_url)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO assets (barcode, asset_tag, serial, name, manufacturer, model_name, model_number, category, purchase_cost, notes, status, image_url, snipeit_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     asset.barcode || null,
     tag,
@@ -119,6 +119,7 @@ function createAsset(asset) {
     asset.notes || null,
     asset.status || 'Ready to Deploy',
     asset.image_url || null,
+    asset.snipeit_id || null,
   ]);
 
   // Get the last inserted ID

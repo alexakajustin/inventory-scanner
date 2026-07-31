@@ -223,16 +223,18 @@ body {
 
 #reader {
   width: 100%;
-  min-height: 200px;
+  aspect-ratio: 3/4;
+  min-height: 400px;
 }
 
 #reader video {
   border-radius: var(--radius-lg) !important;
+  object-fit: cover !important;
 }
 
 /* Override html5-qrcode styles */
 #reader__scan_region {
-  min-height: 200px !important;
+  min-height: 400px !important;
 }
 
 #reader__dashboard {
@@ -323,6 +325,16 @@ body {
 
 .btn-secondary:hover {
   background: var(--bg-card-hover);
+}
+
+.btn-outline {
+  background: transparent;
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.btn-outline:hover {
+  background: rgba(255,255,255,0.05);
 }
 
 .btn-success {
