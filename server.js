@@ -94,12 +94,13 @@ app.post('/api/parse-ocr', async (req, res) => {
 
   try {
     const prompt = `
-Extrage următoarele informații din textul brut OCR de mai jos, obținut de pe o componentă hardware (PC/IT).
+Extrage următoarele informații din textul brut OCR de mai jos, obținut de pe un produs/echipament/componentă.
 Răspunde STRICT cu un obiect JSON valid, fără formatare markdown, care să conțină următoarele chei:
 - "manufacturer": Producătorul (ex. SAMSUNG, KINGMAX, ASUS, CORSAIR). Dacă nu-l găsești, pune null.
 - "model": Modelul sau capacitatea produsului (ex. 850 EVO 250GB, MZ-75E250). Dacă nu-l găsești, pune null.
 - "serial": Numărul de serie (Serial Number / S/N). Ignoră codurile WWN (ex. 500...) sau EAN. Pune doar seria. Dacă nu o găsești, pune null.
 - "part_number": Part Number (P/N), dacă există. Altfel null.
+- "category": Alege CEA MAI POTRIVITĂ categorie STRICT din următoarea listă (dacă nu ești sigur, pune "Uncategorized"): Laptop, Desktop, Server, Workstation, Monitor, CPU, GPU, RAM, SSD, HDD, Motherboard, Power Supply, Router, Switch, Access Point, Firewall, NAS, Keyboard, Mouse, Headset, Webcam, Docking Station, Printer, Scanner, Projector, Phone - VoIP, Smartphone, Tablet, Chair, Desk, Cabinet, Toolbox, Cable, Adapter, UPS.
 
 Text OCR brut:
 ${text}

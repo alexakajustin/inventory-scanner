@@ -530,7 +530,14 @@
       els.fieldManufacturer.value = ai ? (ai.manufacturer || '') : '';
       els.fieldModel.value = ai ? (ai.model || '') : '';
       els.fieldBarcode.value = data.barcode || '';
-      els.fieldCategory.value = 'Uncategorized';
+      
+      if (ai && ai.category) {
+        const catStr = ai.category.trim().toLowerCase();
+        const matchedOpt = Array.from(els.fieldCategory.options).find(o => o.value.toLowerCase() === catStr);
+        els.fieldCategory.value = matchedOpt ? matchedOpt.value : 'Uncategorized';
+      } else {
+        els.fieldCategory.value = 'Uncategorized';
+      }
       
       if (window.lastAiParse && window.lastAiParse.part_number) {
          els.fieldNotes.value = "P/N: " + window.lastAiParse.part_number;
@@ -540,7 +547,9 @@
       els.fieldSerial.value = data.parsedSerial || (isLikelySerial ? data.barcode : '');
 
       els.fieldCost.value = '';
-      els.fieldNotes.value = '';
+      if (!window.lastAiParse || !window.lastAiParse.part_number) {
+         els.fieldNotes.value = '';
+      }
       els.resultImageWrapper.style.display = 'none';
       els.resultImage.src = '';
 
