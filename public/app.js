@@ -21,10 +21,9 @@
     tabs: $$('.tab'),
     tabContents: $$('.tab-content'),
     // Scanner
-    btnStartScan: $('#btn-start-scan'),
-    btnStopScan: $('#btn-stop-scan'),
     btnOcrScan: $('#btn-ocr-scan'),
     scannerContainer: $('#scanner-container'),
+    scannerFreezeFrame: $('#scanner-freeze-frame'),
     manualBarcode: $('#manual-barcode'),
     btnManualLookup: $('#btn-manual-lookup'),
     // Result
@@ -163,9 +162,6 @@
   });
 
   // ── Barcode & QR Scanner ─────────────────────────────────────
-
-  els.btnStartScan.addEventListener('click', () => startScanner('lookup'));
-  els.btnStopScan.addEventListener('click', stopScanner);
   if (els.btnOcrScan) {
     els.btnOcrScan.addEventListener('click', doOcrScan);
   }
@@ -198,14 +194,13 @@
             height: { ideal: 1080 }
           }
         },
-        onScanSuccess,
-        () => {} // ignore scan failures (normal during scanning)
+        onScanSuccess
       );
 
       isScanning = true;
-      els.btnStartScan.style.display = 'none';
-      els.btnStopScan.style.display = '';
-      if (els.btnOcrScan) els.btnOcrScan.style.display = '';
+      if (els.scannerFreezeFrame) els.scannerFreezeFrame.style.display = 'none';
+      if (els.scannerFreezeFrame) els.scannerFreezeFrame.src = '';
+      if (els.btnOcrScan) els.btnOcrScan.style.display = 'block';
       els.scannerContainer.classList.add('scanning');
       
       const scanLabel = target === 'serial' ? 'Scanați S/N sau apăsați butonul OCR' : 'Scanați Cod de bare / QR';
@@ -240,22 +235,17 @@
       console.log(`[DEBUG] doOcrScan: isScanning=false, oprim executia.`);
       showToast('⚠️', 'Pornește scanner-ul întâi!', 'error');
       return;
-    }// Pause barcode scanner so it doesn't accidentally read random barcodes (like WWN) while we process OCR
-    try {
-      scanner.pause();
-    } catch(e) {}
-
+    }
     // Get the video element from html5-qrcode
     const video = document.querySelector('#reader video');
     if (!video) {
       showToast('❌', 'Nu pot captura imaginea video', 'error');
-      try { scanner.resume(); } catch(e) {}
       return;
     }
 
     try {
-      if (els.btnOcrScan) els.btnOcrScan.disabled = true;
-      showToast('🤖', 'Analizez imaginea cu Neural Engine 2...', 'info');
+      if (els.btnOcrScan) els.btnOcrScan.style.display = 'none';
+      showToast('🧠', 'Gemini AI analizează imaginea...', 'info');
 
       // Create a canvas to grab high-res frame
       const canvas = document.createElement('canvas');
@@ -266,99 +256,54 @@
 
       const base64Image = canvas.toDataURL('image/jpeg', 0.8);
 
-      console.log(`[DEBUG] doOcrScan: Trimit imaginea (base64 length=${base64Image.length}) la server pentru OCR...`);
-      // Send base64 frame to Server OCR Engine 2
-      const res = await fetch('/api/ocr-scan', {
+      if (els.scannerFreezeFrame) {
+        els.scannerFreezeFrame.src = base64Image;
+        els.scannerFreezeFrame.style.display = 'block';
+      }
+
+      // Opreste camera ca sa nu mai consume resurse/baterie pe fundal
+      await stopScanner();
+
+      console.log(`[DEBUG] doOcrScan: Trimit imaginea catre Gemini Vision...`);
+      // Send base64 frame DIRECTLY to Gemini Vision
+      const geminiRes = await fetch('/api/parse-ocr', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: base64Image })
       });
-
-      const data = await res.json();
-      const text = data.text || '';
       
-      // Smart S/N Extractor on High Quality OCR text
-      function extractSmartSN(rawText) {
-          // 1. Try explicit markers (S/N, SN, SIN, Serial, etc)
-          const snRegex = /(?:S[\/\\I\|]?N|Serial|S\/N|S N)[\s:\-\.]*([A-Z0-9]{8,20})/i;
-          let match = rawText.match(snRegex);
-          if (match && match[1]) return match[1].replace(/[^A-Z0-9]/ig, '');
-          
-          // 2. Collect all plausible words
-          const words = rawText.split(/[\s,\|»\n]+/).map(w => w.replace(/[^A-Z0-9]/ig, ''));
-          const candidates = words.filter(w => w.length >= 8 && w.length <= 20);
-          
-          // 3. Filter out WWN (starts with 500, 16 hex chars) and purely numeric (EAN/UPC)
-          const validCandidates = candidates.filter(w => {
-              const isWWN = /^500[0-9A-F]{13}$/i.test(w);
-              const isNumeric = /^\d+$/.test(w);
-              return !isWWN && !isNumeric;
-          });
-          
-          if (validCandidates.length > 0) {
-              // Prefer strings with mixed letters and numbers
-              validCandidates.sort((a, b) => {
-                 let scoreA = (a.match(/[A-Z]/i) ? 1 : 0) + (a.match(/[0-9]/) ? 1 : 0);
-                 let scoreB = (b.match(/[A-Z]/i) ? 1 : 0) + (b.match(/[0-9]/) ? 1 : 0);
-                 return scoreB - scoreA;
-              });
-              return validCandidates[0];
-          }
-          
-          return candidates.length > 0 ? candidates[0] : null;
+      if (!geminiRes.ok) {
+         const errData = await geminiRes.json();
+         throw new Error(errData.error || 'Eroare Gemini Vision');
       }
-
-      // Send text to Gemini for intelligent extraction
-      showToast('🧠', 'Gemini AI extrage datele...', 'info');
-      let finalSN = null;
-
-      console.log(`[DEBUG] doOcrScan: Trimit textul catre /api/parse-ocr...`);
-      try {
-        const geminiRes = await fetch('/api/parse-ocr', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text })
-        });
-        
-        if (!geminiRes.ok) {
-           const errData = await geminiRes.json();
-           throw new Error(errData.error || 'Eroare Gemini');
-        }
-        
-        const parsedData = await geminiRes.json();
-        
-        // Save globally so we can auto-fill forms later
-        window.lastAiParse = parsedData;
-        finalSN = parsedData.serial;
-        
-        if (parsedData.manufacturer || parsedData.model) {
-           console.log("🤖 Gemini AI a găsit și detalii hardware:", parsedData);
-           if (parsedData.manufacturer) els.fieldManufacturer.value = parsedData.manufacturer;
-           if (parsedData.model) els.fieldModel.value = parsedData.model;
-           if (parsedData.part_number) els.fieldNotes.value = "P/N: " + parsedData.part_number;
-           
-           // Trigger updateSearchLink manually
-           els.fieldModel.dispatchEvent(new Event('input'));
-        }
-
-      } catch (aiErr) {
-        console.warn("Gemini a eșuat, folosesc filtrul regex S/N fallback:", aiErr);
-        finalSN = extractSmartSN(text);
+      
+      const parsedData = await geminiRes.json();
+      
+      // Save globally so we can auto-fill forms later
+      window.lastAiParse = parsedData;
+      let finalSN = parsedData.serial;
+      
+      if (parsedData.manufacturer || parsedData.model) {
+         console.log("🤖 Gemini AI a găsit și detalii hardware:", parsedData);
+         if (parsedData.manufacturer) els.fieldManufacturer.value = parsedData.manufacturer;
+         if (parsedData.model) els.fieldModel.value = parsedData.model;
+         if (parsedData.part_number) els.fieldNotes.value = "P/N: " + parsedData.part_number;
+         
+         // Trigger updateSearchLink manually
+         els.fieldModel.dispatchEvent(new Event('input'));
       }
 
       if (finalSN) {
         showToast('✅', `AI S/N: ${finalSN}`, 'success');
         onScanSuccess(finalSN);
       } else {
-        showToast('⚠️', 'Nu s-a găsit S/N în imagine.', 'error');
-        console.log("Neural OCR Text:\n", text);
+        showToast('⚠️', 'Eroare sau nu s-a găsit S/N în imagine.', 'error');
+        startScanner('lookup');
       }
     } catch (err) {
       console.error('OCR Error:', err);
       showToast('❌', 'Eroare OCR: ' + err.message, 'error');
-    } finally {
-      if (els.btnOcrScan) els.btnOcrScan.disabled = false;
-      try { scanner.resume(); } catch(e) {}
+      startScanner('lookup');
     }
   }
 
@@ -374,8 +319,6 @@
       }
     } catch (e) {}
 
-    els.btnStartScan.style.display = '';
-    els.btnStopScan.style.display = 'none';
     if (els.btnOcrScan) els.btnOcrScan.style.display = 'none';
     els.scannerContainer.classList.remove('scanning');
   }
@@ -557,7 +500,11 @@
       const isLikelySerial = data.parsedSerial || (data.barcode && !/^\d{8,14}$/.test(data.barcode));
       els.fieldSerial.value = data.parsedSerial || (isLikelySerial ? data.barcode : '');
 
-      els.fieldCost.value = '';
+      if (window.lastAiParse && window.lastAiParse.estimated_price) {
+         els.fieldCost.value = window.lastAiParse.estimated_price;
+      } else {
+         els.fieldCost.value = '';
+      }
       if (!window.lastAiParse || !window.lastAiParse.part_number) {
          els.fieldNotes.value = '';
       }
@@ -576,6 +523,7 @@
   els.btnCloseResult.addEventListener('click', () => {
     els.scanResult.style.display = 'none';
     resetForm();
+    startScanner('lookup');
   });
 
   els.btnScanAnother.addEventListener('click', () => {
@@ -630,6 +578,7 @@
         els.scanResult.style.display = 'none';
         resetForm();
         updateAssetCount();
+        startScanner('lookup');
       } else {
         showToast('❌', data.error || 'Eroare la salvare', 'error');
       }
@@ -1120,6 +1069,11 @@
 
     els.btnSyncAll.disabled = false;
     els.btnSyncAll.innerHTML = '<span>🚀</span> Sync All to Snipe-IT';
+  });
+
+  // Auto-start scanner on page load
+  window.addEventListener('DOMContentLoaded', () => {
+    startScanner('lookup');
   });
 
 })();

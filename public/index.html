@@ -53,18 +53,13 @@
     <section class="tab-content active" id="content-scan">
       <!-- Scanner Area -->
       <div class="scanner-wrapper">
-        <div id="scanner-container">
+        <div id="scanner-container" style="position: relative;">
           <div id="reader" style="width: 100%; height: 100%; border-radius: inherit; background: #000; position: relative; overflow: hidden;"></div>
+          <img id="scanner-freeze-frame" style="display:none; position: absolute; top:0; left:0; width:100%; height:100%; object-fit: cover; border-radius: inherit; z-index: 10;">
         </div>
         <div class="scanner-controls">
-          <button id="btn-start-scan" class="btn btn-primary btn-lg">
-            <span>📷</span> Start Scanner
-          </button>
-          <button id="btn-ocr-scan" class="btn btn-accent btn-lg" style="display:none; margin-top: 10px;">
+          <button id="btn-ocr-scan" class="btn btn-accent btn-lg" style="margin-top: 10px;">
             <span>🤖</span> Citește Text (OCR S/N)
-          </button>
-          <button id="btn-stop-scan" class="btn btn-secondary btn-lg" style="display:none; margin-top: 10px;">
-            <span>⏹️</span> Stop Scanner
           </button>
         </div>
         <div class="manual-input">

@@ -86,25 +86,25 @@ if (fs.existsSync('.env')) {
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
 app.post('/api/parse-ocr', async (req, res) => {
-  const { text } = req.body;
-  if (!text) return res.status(400).json({ error: 'No text provided' });
+  const { image } = req.body;
+  if (!image) return res.status(400).json({ error: 'No image provided' });
   
   if (GEMINI_API_KEY === "PUNE_CHEIA_AICI" || !GEMINI_API_KEY) {
      return res.status(500).json({ error: 'Gemini API Key lipseste din server.js! Pune cheia în variabila GEMINI_API_KEY.' });
   }
 
   try {
+    const base64Data = image.replace(/^data:image\/\w+;base64,/, '');
+    
     const prompt = `
-Extrage următoarele informații din textul brut OCR de mai jos, obținut de pe un produs/echipament/componentă.
-Răspunde STRICT cu un obiect JSON valid, fără formatare markdown, care să conțină următoarele chei:
+Analizează imaginea de mai jos, care conține o componentă hardware/echipament IT (sau eticheta acesteia).
+Extrage informațiile de pe etichetă și răspunde STRICT cu un obiect JSON valid, fără formatare markdown, care să conțină următoarele chei:
 - "manufacturer": Producătorul (ex. SAMSUNG, KINGMAX, ASUS, CORSAIR). Dacă nu-l găsești, pune null.
 - "model": Modelul sau capacitatea produsului (ex. 850 EVO 250GB, MZ-75E250). Dacă nu-l găsești, pune null.
 - "serial": Numărul de serie (Serial Number / S/N). Ignoră codurile WWN (ex. 500...) sau EAN. Pune doar seria. Dacă nu o găsești, pune null.
 - "part_number": Part Number (P/N), dacă există. Altfel null.
 - "category": Alege CEA MAI POTRIVITĂ categorie STRICT din următoarea listă (dacă nu ești sigur, pune "Uncategorized"): Laptop, Desktop, Server, Workstation, Monitor, CPU, GPU, RAM, SSD, HDD, Motherboard, Power Supply, Router, Switch, Access Point, Firewall, NAS, Keyboard, Mouse, Headset, Webcam, Docking Station, Printer, Scanner, Projector, Phone - VoIP, Smartphone, Tablet, Chair, Desk, Cabinet, Toolbox, Cable, Adapter, UPS.
-
-Text OCR brut:
-${text}
+- "estimated_price": Estimează prețul de piață (în RON) pentru acest produs. Returnează DOAR un număr întreg (ex. 150, 45, 2000). Dacă nu poți estima deloc, pune null.
     `;
 
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`, {
@@ -113,7 +113,17 @@ ${text}
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
+        contents: [{
+          parts: [
+            { text: prompt },
+            {
+              inlineData: {
+                mimeType: "image/jpeg",
+                data: base64Data
+              }
+            }
+          ]
+        }],
         generationConfig: {
           responseMimeType: "application/json"
         }
@@ -130,7 +140,7 @@ ${text}
     const aiText = data.candidates[0].content.parts[0].text;
     const parsed = JSON.parse(aiText);
     
-    console.log(`\n🧠 [GEMINI AI PARSED]:\n====================\n${JSON.stringify(parsed, null, 2)}\n====================\n`);
+    console.log(`\n🧠 [GEMINI AI VISION PARSED]:\n====================\n${JSON.stringify(parsed, null, 2)}\n====================\n`);
     return res.json(parsed);
 
   } catch (err) {
