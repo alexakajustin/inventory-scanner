@@ -24,7 +24,8 @@ const HTTPS_PORT = 8181;
 // ── Middleware ────────────────────────────────────────────────────
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ── API: Barcode Lookup ──────────────────────────────────────────
@@ -34,6 +35,42 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.post('/api/log-ocr', (req, res) => {
   console.log(`\n🤖 [OCR DETECTAT]:\n====================\n${req.body.text}\n====================\n`);
   res.json({ success: true });
+});
+
+app.post('/api/ocr-scan', async (req, res) => {
+  const { image } = req.body;
+  if (!image) return res.status(400).json({ error: 'Fără imagine' });
+
+  try {
+    const formData = new URLSearchParams();
+    formData.append('base64Image', image);
+    formData.append('language', 'eng');
+    formData.append('isOverlayRequired', 'false');
+    formData.append('OCREngine', '2'); // Deep Learning Engine 2 for numbers/S/N
+    formData.append('scale', 'true');
+    formData.append('detectOrientation', 'true');
+
+    const response = await fetch('https://api.ocr.space/parse/image', {
+      method: 'POST',
+      headers: {
+        'apikey': 'helloworld',
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: formData
+    });
+
+    const data = await response.json();
+    if (data && data.ParsedResults && data.ParsedResults.length > 0) {
+      const parsedText = data.ParsedResults[0].ParsedText || '';
+      console.log(`\n🤖 [OCR ENGINE 2 HIGH-PRECISION]:\n====================\n${parsedText}\n====================\n`);
+      return res.json({ text: parsedText });
+    }
+
+    return res.json({ text: '' });
+  } catch (err) {
+    console.error("OCR API error:", err);
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 app.get(['/api/lookup', '/api/lookup/:barcode(*)'], async (req, res) => {

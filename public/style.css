@@ -1158,3 +1158,11 @@ label {
   z-index: 2;
   pointer-events: none;
 }
+
+/* Hide scanner shaded box overlay */
+#reader__scan_region, #qr-shaded-region {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  display: none !important;
+}

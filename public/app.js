@@ -176,22 +176,25 @@
     scanTarget = target;
 
     try {
-      if (!window.Html5Qrcode) {
-        showToast('❌', 'Html5Qrcode nu s-a încărcat.', 'error');
-        return;
-      }
-      
-      scanner = new Html5Qrcode('reader');
-      
+      const formatsToSupport = [
+        Html5QrcodeSupportedFormats.QR_CODE,
+        Html5QrcodeSupportedFormats.DATA_MATRIX,
+        Html5QrcodeSupportedFormats.CODE_128,
+        Html5QrcodeSupportedFormats.CODE_39,
+        Html5QrcodeSupportedFormats.EAN_13,
+        Html5QrcodeSupportedFormats.UPC_A
+      ];
+
+      scanner = new Html5Qrcode('reader', { formatsToSupport });
+
       await scanner.start(
         { facingMode: "environment" },
         {
-          fps: 10,
+          fps: 15,
           videoConstraints: {
             facingMode: "environment",
             width: { ideal: 1920 },
-            height: { ideal: 1080 },
-            advanced: [{ focusMode: "continuous" }]
+            height: { ideal: 1080 }
           }
         },
         onScanSuccess,
@@ -222,6 +225,9 @@
   async function initOcrWorker() {
     try {
       ocrWorker = await Tesseract.createWorker('eng');
+      await ocrWorker.setParameters({
+        tessedit_char_whitelist: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:/- ',
+      });
     } catch (e) {
       console.error("OCR init error:", e);
     }
@@ -230,75 +236,88 @@
   async function doOcrScan() {
     if (!scanner || !isScanning) return;
     
+    // Pause barcode scanner so it doesn't accidentally read random barcodes (like WWN) while we process OCR
+    try {
+      scanner.pause();
+    } catch(e) {}
+
     // Get the video element from html5-qrcode
     const video = document.querySelector('#reader video');
     if (!video) {
       showToast('❌', 'Nu pot captura imaginea video', 'error');
+      try { scanner.resume(); } catch(e) {}
       return;
     }
 
     try {
       if (els.btnOcrScan) els.btnOcrScan.disabled = true;
-      showToast('🤖', 'Analizez textul cu OCR...', 'info');
+      showToast('🤖', 'Analizez imaginea cu Neural Engine 2...', 'info');
 
-      // Create a canvas to grab the frame
+      // Create a canvas to grab high-res frame
       const canvas = document.createElement('canvas');
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-      // Image preprocessing: Grayscale & basic thresholding to help Tesseract
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imgData.data;
-      for (let i = 0; i < data.length; i += 4) {
-        const brightness = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
-        const val = brightness > 100 ? 255 : 0; // simple binarization
-        data[i] = val;
-        data[i + 1] = val;
-        data[i + 2] = val;
-      }
-      ctx.putImageData(imgData, 0, 0);
+      const base64Image = canvas.toDataURL('image/jpeg', 0.8);
 
-      if (!ocrWorker) {
-        await initOcrWorker();
+      // Send base64 frame to Server OCR Engine 2
+      const res = await fetch('/api/ocr-scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: base64Image })
+      });
+
+      const data = await res.json();
+      const text = data.text || '';
+      
+      // Smart S/N Extractor on High Quality OCR text
+      function extractSmartSN(rawText) {
+          // 1. Try explicit markers (S/N, SN, SIN, Serial, etc)
+          const snRegex = /(?:S[\/\\I\|]?N|Serial|S\/N|S N)[\s:\-\.]*([A-Z0-9]{8,20})/i;
+          let match = rawText.match(snRegex);
+          if (match && match[1]) return match[1].replace(/[^A-Z0-9]/ig, '');
+          
+          // 2. Collect all plausible words
+          const words = rawText.split(/[\s,\|»\n]+/).map(w => w.replace(/[^A-Z0-9]/ig, ''));
+          const candidates = words.filter(w => w.length >= 8 && w.length <= 20);
+          
+          // 3. Filter out WWN (starts with 500, 16 hex chars) and purely numeric (EAN/UPC)
+          const validCandidates = candidates.filter(w => {
+              const isWWN = /^500[0-9A-F]{13}$/i.test(w);
+              const isNumeric = /^\d+$/.test(w);
+              return !isWWN && !isNumeric;
+          });
+          
+          if (validCandidates.length > 0) {
+              // Prefer strings with mixed letters and numbers
+              validCandidates.sort((a, b) => {
+                 let scoreA = (a.match(/[A-Z]/i) ? 1 : 0) + (a.match(/[0-9]/) ? 1 : 0);
+                 let scoreB = (b.match(/[A-Z]/i) ? 1 : 0) + (b.match(/[0-9]/) ? 1 : 0);
+                 return scoreB - scoreA;
+              });
+              return validCandidates[0];
+          }
+          
+          return candidates.length > 0 ? candidates[0] : null;
       }
 
-      // Run OCR
-      const { data: { text } } = await ocrWorker.recognize(canvas);
-      
-      // Send text to backend for logging
-      try {
-        fetch('/api/log-ocr', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text })
-        }).catch(err => console.error("Eroare trimitere log", err));
-      } catch(e) {}
-      
-      // Look for S/N pattern. OCR often misreads S/N as 5/N, $/N, etc.
-      // E.g. KINGMAX has "S/N:FA8003401001"
-      const snMatch = text.match(/(?:[S5$][\/\\]?[N\|]|Serial)[\s:\-]*([A-Z0-9]{6,20})/i);
-      
-      if (snMatch && snMatch[1]) {
-        showToast('✅', `Text OCR detectat S/N: ${snMatch[1]}`, 'success');
-        onScanSuccess(snMatch[1]);
+      const finalSN = extractSmartSN(text);
+
+      if (finalSN) {
+        showToast('✅', `Neural OCR S/N: ${finalSN}`, 'success');
+        onScanSuccess(finalSN);
       } else {
-        // Fallback: look for any long uppercase alphanumeric string that might be the S/N
-        const fallbackMatch = text.match(/\b([A-Z0-9]{10,20})\b/);
-        if (fallbackMatch && fallbackMatch[1]) {
-           showToast('✅', `OCR (Fallback) detectat: ${fallbackMatch[1]}`, 'success');
-           onScanSuccess(fallbackMatch[1]);
-        } else {
-           showToast('⚠️', 'Nu s-a găsit S/N în text. Apropie și asigură luminozitate bună.', 'error');
-           console.log("Extracted text was:\n", text);
-        }
+        showToast('⚠️', 'Nu s-a găsit S/N în imagine.', 'error');
+        console.log("Neural OCR Text:\n", text);
       }
     } catch (err) {
       console.error('OCR Error:', err);
       showToast('❌', 'Eroare OCR: ' + err.message, 'error');
     } finally {
       if (els.btnOcrScan) els.btnOcrScan.disabled = false;
+      try { scanner.resume(); } catch(e) {}
     }
   }
 
@@ -321,6 +340,17 @@
 
   async function onScanSuccess(decodedText) {
     if (isProcessingScan) return;
+
+    // Smart Filter: Ignore WWN & EAN when explicitly hunting for Serial Number
+    if (scanTarget === 'serial') {
+      const isWWN = /^500[0-9A-F]{13}$/i.test(decodedText);
+      const isUPCEAN = /^\d{12,14}$/.test(decodedText);
+      if (isWWN || isUPCEAN) {
+        console.log(`Ignorat automat cod EAN/WWN nedorit: ${decodedText}`);
+        return; // Scanner keeps running!
+      }
+    }
+
     isProcessingScan = true;
 
     // Stop scanner immediately to prevent double-scans
