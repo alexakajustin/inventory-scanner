@@ -192,6 +192,7 @@
     console.log(`[DEBUG] startScanner apelat. target=${target}, isScanning=${isScanning}`);
     if (isScanning) {
       // Restaurează interfața dacă camera rula deja în fundal
+      if (els.scannerControls) els.scannerControls.style.display = 'flex';
       if (els.btnOcrScan) els.btnOcrScan.style.display = 'block';
       if (els.scannerFreezeFrame) {
         els.scannerFreezeFrame.style.display = 'none';
@@ -238,6 +239,7 @@
       isScanning = true;
       if (els.scannerFreezeFrame) els.scannerFreezeFrame.style.display = 'none';
       if (els.scannerFreezeFrame) els.scannerFreezeFrame.src = '';
+      if (els.scannerControls) els.scannerControls.style.display = 'flex';
       if (els.btnOcrScan) els.btnOcrScan.style.display = 'block';
       els.scannerContainer.classList.add('scanning');
       
@@ -380,7 +382,7 @@
       }
     } catch (e) {}
 
-    if (els.btnOcrScan) els.btnOcrScan.style.display = 'none';
+    if (els.scannerControls) els.scannerControls.style.display = 'none';
     els.scannerContainer.classList.remove('scanning');
   }
 
