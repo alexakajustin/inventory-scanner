@@ -64,9 +64,10 @@ app.post('/api/ocr-scan', async (req, res) => {
       const parsedText = data.ParsedResults[0].ParsedText || '';
       console.log(`\n🤖 [OCR ENGINE 2 HIGH-PRECISION]:\n====================\n${parsedText}\n====================\n`);
       return res.json({ text: parsedText });
+    } else {
+      console.error("❌ OCR.space a returnat o eroare sau n-a gasit nimic:", data);
+      return res.json({ text: '' });
     }
-
-    return res.json({ text: '' });
   } catch (err) {
     console.error("OCR API error:", err);
     return res.status(500).json({ error: err.message });

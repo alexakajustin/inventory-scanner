@@ -171,6 +171,7 @@
   }
 
   async function startScanner(target = 'lookup') {
+    console.log(`[DEBUG] startScanner apelat. target=${target}, isScanning=${isScanning}`);
     if (isScanning) return;
     scanTarget = target;
 
@@ -185,7 +186,8 @@
       ];
 
       scanner = new Html5Qrcode('reader', { formatsToSupport });
-
+      
+      console.log('[DEBUG] Apel scanner.start() ...');
       await scanner.start(
         { facingMode: "environment" },
         {
@@ -233,9 +235,12 @@
   }
 
   async function doOcrScan() {
-    if (!scanner || !isScanning) return;
-    
-    // Pause barcode scanner so it doesn't accidentally read random barcodes (like WWN) while we process OCR
+    console.log(`[DEBUG] doOcrScan apelat.`);
+    if (!isScanning) {
+      console.log(`[DEBUG] doOcrScan: isScanning=false, oprim executia.`);
+      showToast('⚠️', 'Pornește scanner-ul întâi!', 'error');
+      return;
+    }// Pause barcode scanner so it doesn't accidentally read random barcodes (like WWN) while we process OCR
     try {
       scanner.pause();
     } catch(e) {}
@@ -261,6 +266,7 @@
 
       const base64Image = canvas.toDataURL('image/jpeg', 0.8);
 
+      console.log(`[DEBUG] doOcrScan: Trimit imaginea (base64 length=${base64Image.length}) la server pentru OCR...`);
       // Send base64 frame to Server OCR Engine 2
       const res = await fetch('/api/ocr-scan', {
         method: 'POST',
@@ -306,6 +312,7 @@
       showToast('🧠', 'Gemini AI extrage datele...', 'info');
       let finalSN = null;
 
+      console.log(`[DEBUG] doOcrScan: Trimit textul catre /api/parse-ocr...`);
       try {
         const geminiRes = await fetch('/api/parse-ocr', {
           method: 'POST',
@@ -356,6 +363,7 @@
   }
 
   async function stopScanner() {
+    console.log(`[DEBUG] stopScanner apelat. isScanning=${isScanning}`);
     if (!isScanning) return;
     isScanning = false;
     
@@ -373,6 +381,7 @@
   }
 
   async function onScanSuccess(decodedText) {
+    console.log(`[DEBUG] onScanSuccess apelat. decodedText=${decodedText}, scanTarget=${scanTarget}, isProcessingScan=${isProcessingScan}`);
     if (isProcessingScan) return;
 
     // Smart Filter: Ignore WWN & EAN when explicitly hunting for Serial Number
@@ -427,6 +436,7 @@
   // ── Barcode Lookup ───────────────────────────────────────────
 
   async function lookupBarcode(barcode) {
+    console.log(`[DEBUG] lookupBarcode apelat cu barcode=${barcode}`);
     // Show loading state
     showResult({
       found: null, // loading
@@ -453,6 +463,7 @@
   // ── Show Result ──────────────────────────────────────────────
 
   function showResult(data) {
+    console.log(`[DEBUG] showResult apelat. data.found=${data.found}`);
     els.scanResult.style.display = 'block';
     els.scanResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
