@@ -6,9 +6,9 @@
   'use strict';
 
   // ── State ────────────────────────────────────────────────────
-  let scanner = null;
   let isScanning = false;
   let isProcessingScan = false;
+  let scanTarget = 'lookup'; // 'lookup' or 'serial'
 
   // ── DOM Elements ─────────────────────────────────────────────
   const $ = (sel) => document.querySelector(sel);
@@ -40,6 +40,9 @@
     btnSearchPrice: $('#btn-search-price'),
     fieldCategory: $('#field-category'),
     fieldSerial: $('#field-serial'),
+    btnScanSn: $('#btn-scan-sn'),
+    btnCopyBarcodeToSerial: $('#btn-copy-barcode-to-serial'),
+    btnCopySerialToBarcode: $('#btn-copy-serial-to-barcode'),
     fieldCost: $('#field-cost'),
     fieldBarcode: $('#field-barcode'),
     fieldNotes: $('#field-notes'),
@@ -105,6 +108,39 @@
   els.fieldModel.addEventListener('input', updateSearchLink);
   els.fieldManufacturer.addEventListener('input', updateSearchLink);
 
+  // ── Field Copy & Scan Actions ───────────────────────────────
+
+  if (els.btnCopyBarcodeToSerial) {
+    els.btnCopyBarcodeToSerial.addEventListener('click', () => {
+      const val = els.fieldBarcode.value.trim();
+      if (val) {
+        els.fieldSerial.value = val;
+        showToast('📋', 'Codul de bare a fost copiat în Serial Number', 'success');
+      } else {
+        showToast('⚠️', 'Câmpul Cod de bare este gol', 'error');
+      }
+    });
+  }
+
+  if (els.btnCopySerialToBarcode) {
+    els.btnCopySerialToBarcode.addEventListener('click', () => {
+      const val = els.fieldSerial.value.trim();
+      if (val) {
+        els.fieldBarcode.value = val;
+        showToast('📋', 'Serial Number a fost copiat în Cod de bare', 'success');
+      } else {
+        showToast('⚠️', 'Câmpul Serial Number este gol', 'error');
+      }
+    });
+  }
+
+  if (els.btnScanSn) {
+    els.btnScanSn.addEventListener('click', () => {
+      startScanner('serial');
+      els.scannerContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  }
+
   // ── Tab Navigation ───────────────────────────────────────────
 
   els.tabs.forEach(tab => {
@@ -124,68 +160,85 @@
     });
   });
 
-  // ── Barcode Scanner ──────────────────────────────────────────
+  // ── Barcode & QR Scanner ─────────────────────────────────────
 
-  els.btnStartScan.addEventListener('click', startScanner);
+  els.btnStartScan.addEventListener('click', () => startScanner('lookup'));
   els.btnStopScan.addEventListener('click', stopScanner);
 
-  async function startScanner() {
+  async function startScanner(target = 'lookup') {
     if (isScanning) return;
+    scanTarget = target;
 
     try {
-      scanner = new Html5Qrcode('reader');
-
-      const cameras = await Html5Qrcode.getCameras();
-      if (!cameras || cameras.length === 0) {
-        showToast('❌', 'Nu s-a găsit nicio cameră', 'error');
-        return;
-      }
-
-      // Prefer back camera
-      let cameraId = cameras[0].id;
-      for (const cam of cameras) {
-        if (cam.label && cam.label.toLowerCase().includes('back')) {
-          cameraId = cam.id;
-          break;
-        }
-        if (cam.label && cam.label.toLowerCase().includes('environment')) {
-          cameraId = cam.id;
-          break;
-        }
-      }
-
-      await scanner.start(
-        cameraId,
-        {
-          fps: 10,
-          qrbox: { width: 250, height: 150 },
-          aspectRatio: 1.5,
-        },
-        onScanSuccess,
-        () => {} // ignore scan failures (normal during scanning)
-      );
-
       isScanning = true;
       els.btnStartScan.style.display = 'none';
       els.btnStopScan.style.display = '';
       els.scannerContainer.classList.add('scanning');
+      
+      const scanLabel = target === 'serial' ? 'Scanați Serial Number (Code 128 / EAN)' : 'Scanați Cod de bare';
+      showToast('📷', scanLabel, 'info');
+
+      if (!window.Quagga) {
+        showToast('❌', 'Quagga2 nu s-a încărcat.', 'error');
+        stopScanner();
+        return;
+      }
+
+      Quagga.init({
+        inputStream: {
+          name: "Live",
+          type: "LiveStream",
+          target: document.querySelector('#reader'),
+          constraints: {
+            facingMode: "environment",
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            advanced: [{ focusMode: "continuous" }]
+          }
+        },
+        locator: {
+          patchSize: "medium",
+          halfSample: true
+        },
+        numOfWorkers: navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 2,
+        decoder: {
+          readers: ["code_128_reader", "code_39_reader", "ean_reader", "ean_8_reader", "upc_reader"]
+        },
+        locate: true
+      }, function(err) {
+          if (err) {
+              console.error('Quagga init error:', err);
+              showToast('❌', 'Eroare cameră: ' + (err.message || err), 'error');
+              stopScanner();
+              return;
+          }
+          Quagga.start();
+      });
+
+      Quagga.offDetected(onQuaggaDetected);
+      Quagga.onDetected(onQuaggaDetected);
 
     } catch (err) {
       console.error('Scanner error:', err);
       showToast('❌', 'Eroare cameră: ' + (err.message || err), 'error');
+      stopScanner();
+    }
+  }
+
+  function onQuaggaDetected(result) {
+    if (result && result.codeResult && result.codeResult.code) {
+        onScanSuccess(result.codeResult.code);
     }
   }
 
   async function stopScanner() {
-    if (!isScanning || !scanner) return;
-
-    try {
-      await scanner.stop();
-    } catch (e) {
-      // ignore
-    }
-
+    if (!isScanning) return;
     isScanning = false;
+    
+    try {
+      Quagga.stop();
+    } catch (e) {}
+
     els.btnStartScan.style.display = '';
     els.btnStopScan.style.display = 'none';
     els.scannerContainer.classList.remove('scanning');
@@ -200,6 +253,17 @@
 
     // Vibrate for feedback
     if (navigator.vibrate) navigator.vibrate(200);
+
+    if (scanTarget === 'serial') {
+      isProcessingScan = false;
+      els.fieldSerial.value = decodedText;
+      showToast('✅', `S/N scanat: ${decodedText}`, 'success');
+      scanTarget = 'lookup';
+      if (els.scanResult.style.display !== 'none') {
+        els.scanResult.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+      return;
+    }
 
     await lookupBarcode(decodedText);
   }
@@ -229,7 +293,7 @@
     });
 
     try {
-      const resp = await fetch(`/api/lookup/${encodeURIComponent(barcode)}`);
+      const resp = await fetch(`/api/lookup?barcode=${encodeURIComponent(barcode)}`);
       const data = await resp.json();
 
       if (resp.ok) {
@@ -270,6 +334,9 @@
       els.fieldModel.value = data.model_name || '';
       els.fieldModelNumber.value = data.model_number || '';
       els.fieldBarcode.value = data.barcode || '';
+      if (data.parsedSerial) {
+        els.fieldSerial.value = data.parsedSerial;
+      }
 
       // Set category
       if (data.category) {
@@ -309,17 +376,25 @@
       updateSearchLink();
 
     } else {
-      statusEl.innerHTML = '<span class="status-icon">⚠️</span><span class="status-text">Produsul nu a fost găsit — completează manual</span>';
-      statusEl.className = 'result-status not-found';
+      if (data.warning) {
+        statusEl.innerHTML = `<span class="status-icon">⚠️</span><span class="status-text">${data.warning}</span>`;
+        statusEl.className = 'result-status not-found';
+      } else {
+        statusEl.innerHTML = '<span class="status-icon">ℹ️</span><span class="status-text">Cod preluat (S/N / QR / Barcode) — completează detaliile</span>';
+        statusEl.className = 'result-status not-found';
+      }
 
-      // Clear form but keep barcode
+      // Clear form but keep barcode and auto-detect S/N
       els.fieldName.value = '';
       els.fieldManufacturer.value = '';
       els.fieldModel.value = '';
       els.fieldModelNumber.value = '';
       els.fieldBarcode.value = data.barcode || '';
       els.fieldCategory.value = 'Uncategorized';
-      els.fieldSerial.value = '';
+      
+      const isLikelySerial = data.parsedSerial || (data.barcode && !/^\d{8,14}$/.test(data.barcode));
+      els.fieldSerial.value = data.parsedSerial || (isLikelySerial ? data.barcode : '');
+
       els.fieldCost.value = '';
       els.fieldNotes.value = '';
       els.resultImageWrapper.style.display = 'none';

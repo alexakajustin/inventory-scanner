@@ -54,7 +54,7 @@
       <!-- Scanner Area -->
       <div class="scanner-wrapper">
         <div id="scanner-container">
-          <div id="reader"></div>
+          <div id="reader" style="width: 100%; height: 100%; border-radius: inherit; background: #000; position: relative; overflow: hidden;"></div>
         </div>
         <div class="scanner-controls">
           <button id="btn-start-scan" class="btn btn-primary btn-lg">
@@ -144,16 +144,23 @@
               </select>
             </div>
             <div class="form-group">
-              <label for="field-serial">Serial Number</label>
-              <input type="text" id="field-serial" name="serial">
+              <label for="field-serial">Serial Number (S/N)</label>
+              <div class="input-with-action">
+                <input type="text" id="field-serial" name="serial" placeholder="Serie produs...">
+                <button type="button" id="btn-scan-sn" class="btn-input-action" title="Scanează Serial Number cu camera">📷</button>
+                <button type="button" id="btn-copy-barcode-to-serial" class="btn-input-action" title="Copiază din Cod de Bare">📋</button>
+              </div>
             </div>
             <div class="form-group">
               <label for="field-cost">Preț Achiziție</label>
               <input type="number" id="field-cost" name="purchase_cost" step="0.01" min="0">
             </div>
             <div class="form-group">
-              <label for="field-barcode">Cod de Bare</label>
-              <input type="text" id="field-barcode" name="barcode" readonly>
+              <label for="field-barcode">Cod de Bare / QR</label>
+              <div class="input-with-action">
+                <input type="text" id="field-barcode" name="barcode" placeholder="Cod de bare / QR...">
+                <button type="button" id="btn-copy-serial-to-barcode" class="btn-input-action" title="Copiază din Serial Number">📋</button>
+              </div>
             </div>
           </div>
           <div class="form-group full-width">
@@ -382,8 +389,8 @@
 
   </div>
 
-  <!-- html5-qrcode from CDN -->
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <!-- Quagga2 Scanner -->
+  <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

@@ -29,14 +29,32 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── API: Barcode Lookup ──────────────────────────────────────────
 
-app.get('/api/lookup/:barcode', async (req, res) => {
-  const { barcode } = req.params;
+// ── API: Barcode / S/N / QR Lookup ───────────────────────────────
 
-  if (!barcode || barcode.length < 4) {
-    return res.status(400).json({ error: 'Invalid barcode' });
+app.get(['/api/lookup', '/api/lookup/:barcode(*)'], async (req, res) => {
+  let barcode = req.params.barcode || req.query.barcode || req.query.code;
+
+  if (!barcode || !barcode.trim()) {
+    return res.status(400).json({ error: 'Cod invalid' });
   }
 
-  // Check cache first (saves API calls!)
+  barcode = barcode.trim();
+
+  // Smart QR Code / S/N Parsing
+  let parsedSerial = null;
+  let parsedBarcode = barcode;
+
+  if (barcode.startsWith('http://') || barcode.startsWith('https://')) {
+    try {
+      const u = new URL(barcode);
+      const snParam = u.searchParams.get('sn') || u.searchParams.get('serial') || u.searchParams.get('code') || u.searchParams.get('asset');
+      if (snParam) parsedSerial = snParam;
+    } catch(e) {}
+  } else if (/^(s\/n|sn|serial)[:\s-]+/i.test(barcode)) {
+    parsedSerial = barcode.replace(/^(s\/n|sn|serial)[:\s-]+/i, '').trim();
+  }
+
+  // Check cache first
   const cached = db.getCachedLookup(barcode);
   if (cached) {
     console.log(`📦 Cache hit for barcode: ${barcode}`);
@@ -44,17 +62,14 @@ app.get('/api/lookup/:barcode', async (req, res) => {
     let updatedCache = false;
     if (cached.image_url) {
       if (cached.image_url.startsWith('http://') || cached.image_url.startsWith('https://')) {
-        // Remote image in cache -> download locally
         const localPath = await downloadImage(cached.image_url, barcode);
         if (localPath) {
           cached.image_url = localPath;
           updatedCache = true;
         }
       } else if (cached.image_url.startsWith('/images/')) {
-        // Check if file exists on disk
         const localFilePath = path.join(__dirname, 'public', cached.image_url);
         if (!fs.existsSync(localFilePath) && cached.raw && cached.raw.images && cached.raw.images.length > 0) {
-          // Re-download missing image
           const localPath = await downloadImage(cached.raw.images[0], barcode);
           if (localPath) {
             cached.image_url = localPath;
@@ -68,7 +83,16 @@ app.get('/api/lookup/:barcode', async (req, res) => {
       db.setCachedLookup(barcode, cached);
     }
 
-    return res.json({ source: 'cache', ...cached });
+    return res.json({ source: 'cache', ...cached, parsedSerial });
+  }
+
+  // Only query UPCitemdb if it looks like a numeric UPC/EAN (8-14 digits)
+  const isNumericBarcode = /^\d{8,14}$/.test(barcode);
+
+  if (!isNumericBarcode) {
+    console.log(`ℹ️ Non-numeric code or S/N/QR scanned (${barcode}), skipping UPC lookup.`);
+    const notFound = { found: false, barcode: barcode, parsedSerial };
+    return res.json({ source: 'local', ...notFound });
   }
 
   try {
@@ -83,9 +107,10 @@ app.get('/api/lookup/:barcode', async (req, res) => {
 
     if (!response.ok) {
       if (response.status === 429) {
-        return res.status(429).json({ error: 'API rate limit reached (100/day). Try again tomorrow or add manually.' });
+        // Return 200 with found: false so user can still fill form manually without breaking scanner UI
+        return res.json({ source: 'api', found: false, barcode: barcode, parsedSerial, warning: 'Limita de căutări API atinsă. Completează manual.' });
       }
-      return res.status(response.status).json({ error: `UPCitemdb error: ${response.statusText}` });
+      return res.json({ source: 'api', found: false, barcode: barcode, parsedSerial });
     }
 
     const data = await response.json();
@@ -95,17 +120,17 @@ app.get('/api/lookup/:barcode', async (req, res) => {
 
       let image_url = (item.images && item.images.length > 0) ? item.images[0] : null;
 
-      // Download image to server if available
       if (image_url) {
         const localPath = await downloadImage(image_url, barcode);
         if (localPath) {
-          image_url = localPath; // Use local path instead of remote URL
+          image_url = localPath;
         }
       }
 
       const result = {
         found: true,
         barcode: barcode,
+        parsedSerial: parsedSerial,
         name: item.title || 'Unknown Product',
         manufacturer: item.brand || extractBrand(item.title),
         model_name: item.model || extractModel(item.title),
@@ -118,17 +143,16 @@ app.get('/api/lookup/:barcode', async (req, res) => {
         raw: item,
       };
 
-      // Cache it
       db.setCachedLookup(barcode, result);
 
       return res.json({ source: 'api', ...result });
     } else {
-      const notFound = { found: false, barcode: barcode };
+      const notFound = { found: false, barcode: barcode, parsedSerial };
       return res.json({ source: 'api', ...notFound });
     }
   } catch (err) {
     console.error('❌ Lookup error:', err.message);
-    return res.status(500).json({ error: 'Failed to lookup barcode', details: err.message });
+    return res.json({ source: 'api', found: false, barcode: barcode, parsedSerial, error: err.message });
   }
 });
 

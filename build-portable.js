@@ -59,6 +59,7 @@ async function build() {
   const filesToCopy = [
     'server.js',
     'db.js',
+    'snipeit-client.js',
     'generate-cert.js',
     'package.json'
   ];
