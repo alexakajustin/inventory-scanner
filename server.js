@@ -271,6 +271,30 @@ app.get(['/api/lookup', '/api/lookup/:barcode(*)'], async (req, res) => {
       }
     }
 
+    if (!cached.ai) {
+      console.log(`🤖 Cache-ul e vechi (fără AI). Facem cerere Gemini pentru codul: ${barcode}...`);
+      let textToParse = '';
+      if (cached.found) {
+         textToParse = `Nume: ${cached.name || ''}\nBrand: ${cached.manufacturer || ''}\nModel: ${cached.model_name || ''}\nDescriere: ${cached.description || ''}`;
+      } else {
+         textToParse = `Cod scanat: ${barcode}\n(Încearcă să deduci producător, model, categorie sau preț, altfel inventează/ghicește o categorie IT și un preț mediu)`;
+      }
+      
+      const aiData = await askGeminiText(textToParse);
+      if (aiData) {
+         console.log(`🧠 [GEMINI AI UPGRADE PARSED]:\n====================\n${JSON.stringify(aiData, null, 2)}\n====================\n`);
+         cached.ai = aiData;
+         
+         if (cached.found) {
+           if (aiData.manufacturer) cached.manufacturer = aiData.manufacturer;
+           if (aiData.model) cached.model_name = aiData.model;
+           if (aiData.category && aiData.category !== 'Uncategorized') cached.category = aiData.category;
+           if (aiData.estimated_price) cached.lowest_price = aiData.estimated_price;
+         }
+         updatedCache = true;
+      }
+    }
+
     if (updatedCache) {
       db.setCachedLookup(barcode, cached);
     }
@@ -283,7 +307,17 @@ app.get(['/api/lookup', '/api/lookup/:barcode(*)'], async (req, res) => {
 
   if (!isNumericBarcode) {
     console.log(`ℹ️ Non-numeric code or S/N/QR scanned (${barcode}), skipping UPC lookup.`);
-    const notFound = { found: false, barcode: barcode, parsedSerial };
+    let notFound = { found: false, barcode: barcode, parsedSerial };
+    
+    // Fallback la Gemini direct pe codul brut
+    const textToParse = `Cod scanat: ${barcode}\n(Nu este un cod UPC valid. Încearcă să deduci producător, model, categorie sau preț dacă recunoști vreo componentă în acest cod, altfel inventează/ghicește o categorie IT și un preț mediu)`;
+    console.log(`🤖 Cerere Gemini (fallback brut) pentru codul: ${barcode}...`);
+    const aiData = await askGeminiText(textToParse);
+    if (aiData) {
+       console.log(`🧠 [GEMINI AI FALLBACK PARSED]:\n====================\n${JSON.stringify(aiData, null, 2)}\n====================\n`);
+       notFound.ai = aiData;
+    }
+    db.setCachedLookup(barcode, notFound);
     return res.json({ source: 'local', ...notFound });
   }
 
@@ -298,11 +332,20 @@ app.get(['/api/lookup', '/api/lookup/:barcode(*)'], async (req, res) => {
     });
 
     if (!response.ok) {
+      let notFound = { source: 'api', found: false, barcode: barcode, parsedSerial };
       if (response.status === 429) {
-        // Return 200 with found: false so user can still fill form manually without breaking scanner UI
-        return res.json({ source: 'api', found: false, barcode: barcode, parsedSerial, warning: 'Limita de căutări API atinsă. Completează manual.' });
+        notFound.warning = 'Limita de căutări UPC API atinsă.';
       }
-      return res.json({ source: 'api', found: false, barcode: barcode, parsedSerial });
+      
+      const textToParse = `Cod scanat: ${barcode}\n(Nu a putut fi găsit în baza UPC. Ghicește o categorie și un preț estimativ)`;
+      console.log(`🤖 Cerere Gemini (fallback API fail) pentru codul: ${barcode}...`);
+      const aiData = await askGeminiText(textToParse);
+      if (aiData) {
+         console.log(`🧠 [GEMINI AI FALLBACK PARSED]:\n====================\n${JSON.stringify(aiData, null, 2)}\n====================\n`);
+         notFound.ai = aiData;
+      }
+      db.setCachedLookup(barcode, notFound);
+      return res.json(notFound);
     }
 
     const data = await response.json();
@@ -356,7 +399,15 @@ app.get(['/api/lookup', '/api/lookup/:barcode(*)'], async (req, res) => {
 
       return res.json({ source: 'api', ...result });
     } else {
-      const notFound = { found: false, barcode: barcode, parsedSerial };
+      let notFound = { found: false, barcode: barcode, parsedSerial };
+      const textToParse = `Cod scanat: ${barcode}\n(Produs inexistent în UPC. Ghicește o categorie și un preț estimativ)`;
+      console.log(`🤖 Cerere Gemini (fallback API empty) pentru codul: ${barcode}...`);
+      const aiData = await askGeminiText(textToParse);
+      if (aiData) {
+         console.log(`🧠 [GEMINI AI FALLBACK PARSED]:\n====================\n${JSON.stringify(aiData, null, 2)}\n====================\n`);
+         notFound.ai = aiData;
+      }
+      db.setCachedLookup(barcode, notFound);
       return res.json({ source: 'api', ...notFound });
     }
   } catch (err) {
