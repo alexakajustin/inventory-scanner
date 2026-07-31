@@ -82,8 +82,45 @@ if (fs.existsSync('.env')) {
 }
 
 // --- GEMINI AI CONFIGURATION ---
-// Preluăm cheia din variabilele de mediu pentru securitate (ca să nu fie respinsă de GitHub Push Protection)
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+
+const GEMINI_MODELS = [
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3-flash",
+  "gemini-2.5-flash",
+  "gemini-3.1-flash-lite",
+  "gemini-2.5-flash-lite",
+  "gemini-1.5-flash"
+];
+
+async function executeGeminiWithFallback(payload) {
+  let lastError = null;
+  for (const model of GEMINI_MODELS) {
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      
+      if (data.error) {
+        const errType = data.error.status || data.error.code || 'ERROR';
+        console.warn(`⚠️ [${errType}] Model ${model} a eșuat. Trecem la următorul...`);
+        lastError = data.error;
+        continue; // Fallback to next model for ANY error (404, 503, 429, etc)
+      }
+      
+      console.log(`✅ Succes cu modelul: ${model}`);
+      return { data };
+    } catch (err) {
+      console.error(`❌ Network/Fetch error cu modelul ${model}:`, err);
+      lastError = err;
+    }
+  }
+  return { error: lastError || { message: 'Toate modelele au picat.', code: 429 } };
+}
 
 async function askGeminiText(text) {
   if (GEMINI_API_KEY === "PUNE_CHEIA_AICI" || !GEMINI_API_KEY) return null;
@@ -101,20 +138,18 @@ Date produs:
 ${text}
   `;
   try {
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: "application/json" }
-      })
-    });
-    const data = await response.json();
-    if (data.error) {
-       console.error("❌ Gemini API Error in UPC lookup:", data.error);
+    const payload = {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { responseMimeType: "application/json" }
+    };
+    
+    const result = await executeGeminiWithFallback(payload);
+    if (result.error) {
+       console.error("❌ Gemini API Error in UPC lookup:", result.error);
        return null;
     }
     
+    const data = result.data;
     let rawText = data.candidates[0].content.parts[0].text;
     rawText = rawText.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
     
@@ -147,38 +182,37 @@ Extrage informațiile de pe etichetă și răspunde STRICT cu un obiect JSON val
 - "estimated_price": Estimează prețul de piață (în RON) pentru acest produs. Returnează DOAR un număr întreg (ex. 150, 45, 2000). TREBUIE să estimezi un preț oricât de vag. Nu pune null.
     `;
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.6-flash:generateContent?key=${GEMINI_API_KEY}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: prompt },
-            {
-              inlineData: {
-                mimeType: "image/jpeg",
-                data: base64Data
-              }
+    const payload = {
+      contents: [{
+        parts: [
+          { text: prompt },
+          {
+            inlineData: {
+              mimeType: "image/jpeg",
+              data: base64Data
             }
-          ]
-        }],
-        generationConfig: {
-          responseMimeType: "application/json"
-        }
-      })
-    });
+          }
+        ]
+      }],
+      generationConfig: {
+        responseMimeType: "application/json"
+      }
+    };
 
-    const data = await response.json();
-    
-    if (data.error) {
-        console.error("Gemini API Error:", data.error);
-        return res.status(500).json({ error: data.error.message });
+    const result = await executeGeminiWithFallback(payload);
+
+    if (result.error) {
+        console.error("Gemini API Error:", result.error);
+        if (result.error.code === 429 || (result.error.status && result.error.status.includes('EXHAUSTED'))) {
+           return res.status(429).json({ error: 'Toate modelele (3.6, 3.5, 3.1, etc.) și-au atins limita de scanări. Te rog așteaptă un minut!' });
+        }
+        return res.status(500).json({ error: result.error.message || 'Eroare necunoscută API Gemini' });
     }
 
+    const data = result.data;
     const aiText = data.candidates[0].content.parts[0].text;
-    const parsed = JSON.parse(aiText);
+    const rawText = aiText.replace(/^```json/i, '').replace(/^```/i, '').replace(/```$/i, '').trim();
+    const parsed = JSON.parse(rawText);
     
     console.log(`\n🧠 [GEMINI AI VISION PARSED]:\n====================\n${JSON.stringify(parsed, null, 2)}\n====================\n`);
     return res.json(parsed);
@@ -314,6 +348,8 @@ app.get(['/api/lookup', '/api/lookup/:barcode(*)'], async (req, res) => {
          if (aiData.model) result.model_name = aiData.model;
          if (aiData.category && aiData.category !== 'Uncategorized') result.category = aiData.category;
          if (aiData.estimated_price) result.lowest_price = aiData.estimated_price;
+      } else {
+         result.warning = "⚠️ Gemini AI a atins limita de cereri pe minut. Prețul și categoria sunt date brute (nefiltrate).";
       }
 
       db.setCachedLookup(barcode, result);
