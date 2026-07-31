@@ -31,6 +31,11 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ── API: Barcode / S/N / QR Lookup ───────────────────────────────
 
+app.post('/api/log-ocr', (req, res) => {
+  console.log(`\n🤖 [OCR DETECTAT]:\n====================\n${req.body.text}\n====================\n`);
+  res.json({ success: true });
+});
+
 app.get(['/api/lookup', '/api/lookup/:barcode(*)'], async (req, res) => {
   let barcode = req.params.barcode || req.query.barcode || req.query.code;
 

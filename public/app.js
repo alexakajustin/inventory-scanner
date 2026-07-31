@@ -6,6 +6,8 @@
   'use strict';
 
   // ── State ────────────────────────────────────────────────────
+  let scanner = null;
+  let ocrWorker = null;
   let isScanning = false;
   let isProcessingScan = false;
   let scanTarget = 'lookup'; // 'lookup' or 'serial'
@@ -21,6 +23,7 @@
     // Scanner
     btnStartScan: $('#btn-start-scan'),
     btnStopScan: $('#btn-stop-scan'),
+    btnOcrScan: $('#btn-ocr-scan'),
     scannerContainer: $('#scanner-container'),
     manualBarcode: $('#manual-barcode'),
     btnManualLookup: $('#btn-manual-lookup'),
@@ -164,59 +167,50 @@
 
   els.btnStartScan.addEventListener('click', () => startScanner('lookup'));
   els.btnStopScan.addEventListener('click', stopScanner);
+  if (els.btnOcrScan) {
+    els.btnOcrScan.addEventListener('click', doOcrScan);
+  }
 
   async function startScanner(target = 'lookup') {
     if (isScanning) return;
     scanTarget = target;
 
     try {
-      isScanning = true;
-      els.btnStartScan.style.display = 'none';
-      els.btnStopScan.style.display = '';
-      els.scannerContainer.classList.add('scanning');
-      
-      const scanLabel = target === 'serial' ? 'Scanați Serial Number (Code 128 / EAN)' : 'Scanați Cod de bare';
-      showToast('📷', scanLabel, 'info');
-
-      if (!window.Quagga) {
-        showToast('❌', 'Quagga2 nu s-a încărcat.', 'error');
-        stopScanner();
+      if (!window.Html5Qrcode) {
+        showToast('❌', 'Html5Qrcode nu s-a încărcat.', 'error');
         return;
       }
-
-      Quagga.init({
-        inputStream: {
-          name: "Live",
-          type: "LiveStream",
-          target: document.querySelector('#reader'),
-          constraints: {
+      
+      scanner = new Html5Qrcode('reader');
+      
+      await scanner.start(
+        { facingMode: "environment" },
+        {
+          fps: 10,
+          videoConstraints: {
             facingMode: "environment",
             width: { ideal: 1920 },
             height: { ideal: 1080 },
             advanced: [{ focusMode: "continuous" }]
           }
         },
-        locator: {
-          patchSize: "medium",
-          halfSample: true
-        },
-        numOfWorkers: navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 2,
-        decoder: {
-          readers: ["code_128_reader", "code_39_reader", "ean_reader", "ean_8_reader", "upc_reader"]
-        },
-        locate: true
-      }, function(err) {
-          if (err) {
-              console.error('Quagga init error:', err);
-              showToast('❌', 'Eroare cameră: ' + (err.message || err), 'error');
-              stopScanner();
-              return;
-          }
-          Quagga.start();
-      });
+        onScanSuccess,
+        () => {} // ignore scan failures (normal during scanning)
+      );
 
-      Quagga.offDetected(onQuaggaDetected);
-      Quagga.onDetected(onQuaggaDetected);
+      isScanning = true;
+      els.btnStartScan.style.display = 'none';
+      els.btnStopScan.style.display = '';
+      if (els.btnOcrScan) els.btnOcrScan.style.display = '';
+      els.scannerContainer.classList.add('scanning');
+      
+      const scanLabel = target === 'serial' ? 'Scanați S/N sau apăsați butonul OCR' : 'Scanați Cod de bare / QR';
+      showToast('📷', scanLabel, 'info');
+
+      // Initialize OCR worker in background
+      if (!ocrWorker && window.Tesseract) {
+        initOcrWorker();
+      }
 
     } catch (err) {
       console.error('Scanner error:', err);
@@ -225,9 +219,86 @@
     }
   }
 
-  function onQuaggaDetected(result) {
-    if (result && result.codeResult && result.codeResult.code) {
-        onScanSuccess(result.codeResult.code);
+  async function initOcrWorker() {
+    try {
+      ocrWorker = await Tesseract.createWorker('eng');
+    } catch (e) {
+      console.error("OCR init error:", e);
+    }
+  }
+
+  async function doOcrScan() {
+    if (!scanner || !isScanning) return;
+    
+    // Get the video element from html5-qrcode
+    const video = document.querySelector('#reader video');
+    if (!video) {
+      showToast('❌', 'Nu pot captura imaginea video', 'error');
+      return;
+    }
+
+    try {
+      if (els.btnOcrScan) els.btnOcrScan.disabled = true;
+      showToast('🤖', 'Analizez textul cu OCR...', 'info');
+
+      // Create a canvas to grab the frame
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      // Image preprocessing: Grayscale & basic thresholding to help Tesseract
+      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const data = imgData.data;
+      for (let i = 0; i < data.length; i += 4) {
+        const brightness = (data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+        const val = brightness > 100 ? 255 : 0; // simple binarization
+        data[i] = val;
+        data[i + 1] = val;
+        data[i + 2] = val;
+      }
+      ctx.putImageData(imgData, 0, 0);
+
+      if (!ocrWorker) {
+        await initOcrWorker();
+      }
+
+      // Run OCR
+      const { data: { text } } = await ocrWorker.recognize(canvas);
+      
+      // Send text to backend for logging
+      try {
+        fetch('/api/log-ocr', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text })
+        }).catch(err => console.error("Eroare trimitere log", err));
+      } catch(e) {}
+      
+      // Look for S/N pattern. OCR often misreads S/N as 5/N, $/N, etc.
+      // E.g. KINGMAX has "S/N:FA8003401001"
+      const snMatch = text.match(/(?:[S5$][\/\\]?[N\|]|Serial)[\s:\-]*([A-Z0-9]{6,20})/i);
+      
+      if (snMatch && snMatch[1]) {
+        showToast('✅', `Text OCR detectat S/N: ${snMatch[1]}`, 'success');
+        onScanSuccess(snMatch[1]);
+      } else {
+        // Fallback: look for any long uppercase alphanumeric string that might be the S/N
+        const fallbackMatch = text.match(/\b([A-Z0-9]{10,20})\b/);
+        if (fallbackMatch && fallbackMatch[1]) {
+           showToast('✅', `OCR (Fallback) detectat: ${fallbackMatch[1]}`, 'success');
+           onScanSuccess(fallbackMatch[1]);
+        } else {
+           showToast('⚠️', 'Nu s-a găsit S/N în text. Apropie și asigură luminozitate bună.', 'error');
+           console.log("Extracted text was:\n", text);
+        }
+      }
+    } catch (err) {
+      console.error('OCR Error:', err);
+      showToast('❌', 'Eroare OCR: ' + err.message, 'error');
+    } finally {
+      if (els.btnOcrScan) els.btnOcrScan.disabled = false;
     }
   }
 
@@ -236,11 +307,15 @@
     isScanning = false;
     
     try {
-      Quagga.stop();
+      if (scanner) {
+        await scanner.stop();
+        scanner.clear();
+      }
     } catch (e) {}
 
     els.btnStartScan.style.display = '';
     els.btnStopScan.style.display = 'none';
+    if (els.btnOcrScan) els.btnOcrScan.style.display = 'none';
     els.scannerContainer.classList.remove('scanning');
   }
 

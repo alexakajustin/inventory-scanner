@@ -60,7 +60,10 @@
           <button id="btn-start-scan" class="btn btn-primary btn-lg">
             <span>📷</span> Start Scanner
           </button>
-          <button id="btn-stop-scan" class="btn btn-secondary btn-lg" style="display:none;">
+          <button id="btn-ocr-scan" class="btn btn-accent btn-lg" style="display:none; margin-top: 10px;">
+            <span>🤖</span> Citește Text (OCR S/N)
+          </button>
+          <button id="btn-stop-scan" class="btn btn-secondary btn-lg" style="display:none; margin-top: 10px;">
             <span>⏹️</span> Stop Scanner
           </button>
         </div>
@@ -389,8 +392,9 @@
 
   </div>
 
-  <!-- Quagga2 Scanner -->
-  <script src="https://cdn.jsdelivr.net/npm/@ericblade/quagga2/dist/quagga.min.js"></script>
+  <!-- Html5Qrcode (for 2D/1D barcodes) & Tesseract.js (for OCR text) -->
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>
